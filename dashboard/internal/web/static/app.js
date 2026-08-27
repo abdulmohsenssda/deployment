@@ -26,11 +26,16 @@
   function openPalette() {
     if (!palette) return;
     palette.classList.remove('hidden');
+    palette.setAttribute('aria-hidden', 'false');
     palInput.value = '';
     renderPalette('');
     palInput.focus();
   }
-  function closePalette() { palette && palette.classList.add('hidden'); }
+  function closePalette() {
+    if (!palette) return;
+    palette.classList.add('hidden');
+    palette.setAttribute('aria-hidden', 'true');
+  }
 
   function renderPalette(q) {
     if (!palList) return;

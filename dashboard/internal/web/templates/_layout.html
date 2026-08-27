@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Dokku Control Plane · {{.Env}}</title>
+  <title>{{if .PageTitle}}{{.PageTitle}} · {{end}}Dokku Control Plane{{if .Env}} · {{.Env}}{{end}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -11,22 +11,23 @@
   <header class="topnav">
     <div class="topnav-inner">
       <div class="topnav-left">
-        <a href="/" class="topnav-brand">
-          <span class="brand-icon {{if eq .Env "prod"}}brand-prod{{else}}brand-dev{{end}}"></span>
+        <a href="/" class="topnav-brand" aria-label="Dokku Control Plane home">
+          <span class="brand-icon {{if eq .Env "prod"}}brand-prod{{else}}brand-dev{{end}}" aria-hidden="true"></span>
           <span class="brand-name">Dokku Control Plane</span>
           <span class="brand-env">{{.Env}}{{if .TenantPrefix}} · {{.TenantPrefix}}{{end}}</span>
         </a>
       </div>
-      <nav class="topnav-links">
+      <nav class="topnav-links" aria-label="Primary navigation">
         <a href="/" class="topnav-link">Services</a>
         <a href="/scripts" class="topnav-link">Commands</a>
         <a href="/releases" class="topnav-link">Releases</a>
       </nav>
       <div class="topnav-right">
-        <a href="/settings/password" class="topnav-icon-btn" title="Access settings">⚙</a>
-        <button id="palette-btn" class="topnav-icon-btn" title="Search (⌘K)">⌕</button>
-        <form method="post" action="/logout" style="margin:0">
-          <button class="topnav-icon-btn" title="Sign out">⏻</button>
+        <a href="/settings/password" class="topnav-icon-btn" title="Access settings" aria-label="Access settings">⚙</a>
+        <button type="button" id="palette-btn" class="topnav-icon-btn" title="Search (⌘K)"
+                aria-label="Search (⌘K)" aria-controls="palette" aria-haspopup="dialog">⌕</button>
+        <form method="post" action="/logout" style="margin:0" aria-label="Sign out">
+          <button type="submit" class="topnav-icon-btn" title="Sign out" aria-label="Sign out">⏻</button>
         </form>
       </div>
     </div>

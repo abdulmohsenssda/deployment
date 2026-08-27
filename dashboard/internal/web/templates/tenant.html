@@ -64,10 +64,10 @@
         <input id="input-image_version" type="text" name="image_version"
                value="{{.DefaultVersion}}" placeholder="e.g. v1.2.3 or feature-branch"
                class="form-input" style="width:100%" autocomplete="off"
-               data-tag-search required>
+               data-tag-search required aria-label="Image version">
         <datalist id="dl-image_version"></datalist>
       </div>
-      <button class="btn btn-primary">Sync</button>
+      <button type="submit" class="btn btn-primary">Sync</button>
     </form>
   </div>
 
@@ -111,6 +111,7 @@
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="cred-admin-pass" type="password" placeholder="New password (min 8 chars)"
+          aria-label="New admin password"
           class="form-input" style="flex:1;min-width:160px">
         <button id="cred-admin-btn" data-role="admin" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
@@ -124,6 +125,7 @@
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <input id="cred-manager-pass" type="password" placeholder="New password (min 8 chars)"
+          aria-label="New manager password"
           class="form-input" style="flex:1;min-width:160px">
         <button id="cred-manager-btn" data-role="manager" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
@@ -147,7 +149,7 @@
     </div>
     <div class="panel-toolbar-right">
       <input id="backup-label" type="text" placeholder="Optional label for backup…"
-             class="search-input" style="width:200px">
+             aria-label="Optional backup label" class="search-input" style="width:200px">
       <button id="create-backup-btn" class="btn btn-primary">+ Create Backup</button>
     </div>
   </div>
@@ -387,7 +389,7 @@
           : '<span style="font-size:11px;color:var(--text-dim)">—</span>';
         const restoreBtn = `<button class="btn-action" data-restore="${b.id}">↩ Restore</button>`;
         const delBtn = isUser
-          ? `<button class="btn-action warn" data-del="${b.id}" title="Delete user backup">🗑</button>`
+          ? `<button class="btn-action warn" data-del="${b.id}" title="Delete user backup" aria-label="Delete user backup">🗑</button>`
           : `<span title="Auto backups are deleted by retention policy" style="font-size:11px;color:var(--text-dim)">policy</span>`;
         const ts = b.created_at || b.timestamp || '—';
         const shortTS = ts.length > 19 ? ts.slice(0, 19).replace('T', ' ') : ts;

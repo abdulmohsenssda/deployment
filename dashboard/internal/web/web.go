@@ -1343,6 +1343,9 @@ func (s *server) render(w http.ResponseWriter, name string, data any) {
 		return
 	}
 	if m, ok := data.(map[string]any); ok {
+		if title, exists := m["PageTitle"].(string); !exists || strings.TrimSpace(title) == "" {
+			m["PageTitle"] = pageTitleFor(name, m)
+		}
 		pw := strings.TrimSpace(getenv("MYSQL_ROOT_PASSWORD"))
 		user := strings.TrimSpace(getenv("MYSQL_ROOT_USER"))
 		configured := pw != "" && pw != "changeme"
@@ -1354,6 +1357,45 @@ func (s *server) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func pageTitleFor(name string, data map[string]any) string {
+	switch name {
+	case "login.html":
+		return "Sign in"
+	case "index.html":
+		return "Tenant Fleet"
+	case "app.html":
+		if app, ok := data["App"].(dokku.App); ok && strings.TrimSpace(app.Name) != "" {
+			return app.Name
+		}
+		return "App"
+	case "tenant.html":
+		if tenant, ok := data["Tenant"].(string); ok && strings.TrimSpace(tenant) != "" {
+			return tenant
+		}
+		return "Tenant"
+	case "scripts.html":
+		return "Deployment Commands"
+	case "script.html":
+		switch script := data["Script"].(type) {
+		case *scripts.Script:
+			if script != nil && strings.TrimSpace(script.Title) != "" {
+				return script.Title
+			}
+		case scripts.Script:
+			if strings.TrimSpace(script.Title) != "" {
+				return script.Title
+			}
+		}
+		return "Command"
+	case "releases.html":
+		return "Version Catalog"
+	case "password.html":
+		return "Password"
+	default:
+		return ""
 	}
 }
 

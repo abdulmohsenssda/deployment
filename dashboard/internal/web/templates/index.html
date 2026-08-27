@@ -8,14 +8,15 @@
   </div>
   <div class="page-header-right">
     <!-- Quick create: kind prefix + name + button -->
-    <select id="kind-select" class="form-select" style="width:90px" title="Environment kind prefix">
+    <select id="kind-select" class="form-select" style="width:90px" title="Environment kind prefix"
+            aria-label="Environment kind prefix">
       <option value="dev">dev</option>
       <option value="qa">qa</option>
       <option value="prod">prod</option>
     </select>
     <input id="new-tenant-name" type="text" class="search-input" style="width:140px"
-           placeholder="tenant name…" autocomplete="off" spellcheck="false">
-    <button id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
+           placeholder="tenant name…" autocomplete="off" spellcheck="false" aria-label="New tenant name">
+    <button type="button" id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
     <a href="/scripts/deploy-all" class="btn btn-secondary">Sync image</a>
   </div>
 </div>
@@ -30,8 +31,9 @@
       <span id="dokku-pill" class="dokku-pill">Dokku <span class="dokku-status">…</span></span>
     </div>
     <div class="panel-toolbar-right">
-      <input id="filter" type="search" placeholder="Filter tenants…" class="search-input" autocomplete="off">
-      <span id="pulse" class="live-dot" title="Live"></span>
+      <input id="filter" type="search" placeholder="Filter tenants…" class="search-input"
+             autocomplete="off" aria-label="Filter tenants">
+      <span id="pulse" class="live-dot" title="Live updates" role="status" aria-label="Live updates"></span>
     </div>
   </div>
 
