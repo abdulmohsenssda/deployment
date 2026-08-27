@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/abdul-mohsen/deployment/dashboard/internal/buildinfo"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/config"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/dokku"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/logbuf"
@@ -62,7 +63,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("dashboard env=%s listening on %s", cfg.EnvName, cfg.Listen)
+		log.Printf("dashboard env=%s build=%s listening on %s", cfg.EnvName, buildinfo.Current().String(), cfg.Listen)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("listen: %v", err)
 		}

@@ -1,8 +1,8 @@
 # =============================================================================
 # Backend Dockerfile — multi-stage Go build with Atlas migrations baked in
 # =============================================================================
-# Build:  docker build --build-arg APP_VERSION=v0.0.1 -t youruser/api:v0.0.1 .
-# Run:    docker run --env-file .env -p 3000:3000 youruser/api:v0.0.1
+# Build:  docker build --build-arg APP_VERSION=v0.0.1 --build-arg APP_COMMIT=local -t youruser/ifritah-api:v0.0.1 .
+# Run:    docker run --env-file .env -p 3000:3000 youruser/ifritah-api:v0.0.1
 # =============================================================================
 
 # ---- Build stage ----
@@ -26,8 +26,11 @@ RUN curl -sSf https://atlasgo.sh | sh -s -- --community --yes \
 FROM alpine:3.20
 
 ARG APP_VERSION=v0.0.1
+ARG APP_COMMIT=unknown
 ENV APP_VERSION=$APP_VERSION
-LABEL org.opencontainers.image.version=$APP_VERSION
+ENV APP_COMMIT=$APP_COMMIT
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$APP_COMMIT
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app && adduser -S app -G app

@@ -488,8 +488,8 @@ if prompt_yn "Create your first tenant now?" "y"; then
 
         if [ -n "$DOCKERHUB_USERNAME" ]; then
             RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-dev}}"
-            BACKEND_IMG="${DOCKERHUB_USERNAME}/api:${RELEASE_TAG}"
-            FRONTEND_IMG="${DOCKERHUB_USERNAME}/web:${RELEASE_TAG}"
+            BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/api}:${RELEASE_TAG}"
+            FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/web}:${RELEASE_TAG}"
 
             info "Will deploy from: $BACKEND_IMG + $FRONTEND_IMG"
             if prompt_yn "Are images already pushed to Docker Hub?" "n"; then

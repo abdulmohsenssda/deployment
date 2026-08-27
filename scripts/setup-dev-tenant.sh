@@ -53,8 +53,8 @@ if [ -z "$DOCKERHUB_USERNAME" ]; then
     exit 1
 fi
 
-BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/api}:${TAG}"
-FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/web}:${TAG}"
+BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-api}:${TAG}"
+FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-web}:${TAG}"
 
 log "Dev tenant setup"
 info "  Name:           ${NAME}"

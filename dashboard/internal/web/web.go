@@ -55,10 +55,12 @@ type server struct {
 
 // Router builds the HTTP handler.
 func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts.Runner) http.Handler {
+	if err := validateEmbeddedWebAssets(); err != nil {
+		panic("dashboard web assets: " + err.Error())
+	}
 	funcs := templateFuncs()
 	pages := map[string]*template.Template{}
-	layoutPages := []string{"index.html", "app.html", "tenant.html", "scripts.html", "script.html", "releases.html", "password.html"}
-	for _, name := range layoutPages {
+	for _, name := range dashboardPageTemplates {
 		pages[name] = template.Must(template.New("").Funcs(funcs).ParseFS(tplFS,
 			"templates/_layout.html",
 			"templates/palette.html",
@@ -85,10 +87,18 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			setBuildHeaders(w)
+			next.ServeHTTP(w, req)
+		})
+	})
 
 	staticSub, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	r.Get("/version", s.handleBuildInfo)
+	r.Get("/api/build-info", s.handleBuildInfo)
 
 	r.Get("/login", s.handleLoginPage)
 	r.Post("/login", s.handleLoginSubmit)
@@ -129,6 +139,9 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		r.Post("/tenants/{name}/credentials", s.handleTenantUpdateCredentials)
 	})
 
+	if err := validateEmbeddedWebRoutes(r); err != nil {
+		panic("dashboard web routes: " + err.Error())
+	}
 	return r
 }
 
@@ -281,10 +294,6 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"SnapshotError":  snap.Error,
 		"UpdatedAt":      snap.UpdatedAt,
 		"Refreshing":     snap.Refreshing,
-	}
-	if r.Header.Get("HX-Request") == "true" {
-		s.renderPartial(w, "apps_table.html", data)
-		return
 	}
 	s.render(w, "index.html", data)
 }
@@ -1827,6 +1836,7 @@ func (s *server) render(w http.ResponseWriter, name string, data any) {
 		m["TenantPrefix"] = s.cfg.TenantPrefix
 		m["PublicBaseURL"] = s.cfg.PublicBaseURL()
 		m["PublicProtocol"] = s.cfg.PublicProtocol
+		m["Build"] = currentBuildResponse()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, name, data); err != nil {
@@ -1878,6 +1888,9 @@ func (s *server) renderPartial(w http.ResponseWriter, name string, data any) {
 	if !ok {
 		http.Error(w, "unknown template: "+name, http.StatusInternalServerError)
 		return
+	}
+	if m, ok := data.(map[string]any); ok {
+		m["Build"] = currentBuildResponse()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, name, data); err != nil {

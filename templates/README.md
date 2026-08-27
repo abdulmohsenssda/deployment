@@ -13,6 +13,7 @@ templates/
     .dockerignore
     .gitignore
     .github/workflows/deploy.yml
+    .github/workflows/qa-branch-image.yml
   frontend/
     Dockerfile
     docker-compose.yml         # local dev stack (web)
@@ -20,6 +21,7 @@ templates/
     .dockerignore
     .gitignore
     .github/workflows/deploy.yml
+    .github/workflows/qa-branch-image.yml
 ```
 
 ## How to install in an app repo
@@ -43,6 +45,14 @@ with a `v` prefix, for example `vX.X.X`. The starting version is `v0.0.1`.
 
 Backend and frontend must use the same `VERSION` value for a compatible release.
 The dashboard deploys one selected version tag to both images.
+
+The `qa-branch-image.yml` workflow builds same-repository pull requests for
+Docker Hub and publishes a shared, sanitized branch tag (`pr-<branch>`) plus an
+immutable `pr-<branch>-<short-sha>` tag. Fork pull requests do not receive
+Docker Hub credentials. Because both app repos derive the tag from the branch
+name, the dashboard can offer a paired tag only after both images exist.
+Each image also carries its source commit as the non-secret `APP_COMMIT`
+environment value and `org.opencontainers.image.revision` label.
 
 The workflow fails if `VERSION` is lower than the latest GitHub Release tag in
 that repo. Equal is allowed so a rebuild can overwrite the same Docker tag.

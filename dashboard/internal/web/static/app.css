@@ -143,6 +143,15 @@ input, select, textarea { font: inherit; color: inherit; }
   margin: 0 auto;
   padding: 24px 24px 48px;
 }
+.build-meta {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px 20px;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-align: right;
+}
+.build-meta code { color: var(--text-muted); }
 
 /* ── Page header ─────────────────────────────────────────── */
 .page-header {

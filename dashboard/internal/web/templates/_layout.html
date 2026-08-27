@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{if .PageTitle}}{{.PageTitle}} · {{end}}Dokku Control Plane{{if .Env}} · {{.Env}}{{end}}</title>
-  <link rel="stylesheet" href="/static/app.css">
-  <script src="/static/operation-state.js"></script>
-  <script src="/static/logs.js"></script>
-  <script src="/static/log-stream.js"></script>
+  <link rel="stylesheet" href="/static/app.css?v={{.Build.AssetDigest}}">
+  <script src="/static/operation-state.js?v={{.Build.AssetDigest}}"></script>
+  <script src="/static/logs.js?v={{.Build.AssetDigest}}"></script>
+  <script src="/static/log-stream.js?v={{.Build.AssetDigest}}"></script>
 </head>
 <body data-public-base-url="{{.PublicBaseURL}}" data-public-protocol="{{.PublicProtocol}}">
   <!-- Top navigation bar — AWS console style -->
@@ -51,7 +51,10 @@
   <div id="toast" class="toast-container" role="status" aria-live="polite" aria-atomic="true" aria-relevant="text">
     <span id="toast-status" class="sr-only"></span>
   </div>
-  <script src="/static/htmx.min.js" defer></script>
-  <script src="/static/app.js" defer></script>
+  <footer class="build-meta" aria-label="Dashboard build identity">
+    build <code>{{.Build.Version}}</code> · commit <code>{{.Build.Commit}}</code>
+  </footer>
+  <script src="/static/htmx.min.js?v={{.Build.AssetDigest}}" defer></script>
+  <script src="/static/app.js?v={{.Build.AssetDigest}}" defer></script>
 </body>
 </html>{{end}}

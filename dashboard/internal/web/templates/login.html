@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{if .PageTitle}}{{.PageTitle}} · {{end}}Dokku Control Plane{{if .Env}} · {{.Env}}{{end}}</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{.Build.AssetDigest}}">
 </head>
 <body style="background:var(--bg);min-height:100vh;display:flex;align-items:center;justify-content:center">
   <main aria-labelledby="login-heading" style="width:100%;max-width:380px;padding:0 16px">

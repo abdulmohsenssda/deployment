@@ -19,10 +19,10 @@ Use `--plan` to see the underlying script before running it:
 
 ```
 backend repo  →  push to dev  ──────────┐
+frontend repo →  push to dev  ──────────┤       Docker Hub
                  push to main ────┐     │
-                                  │     │       Docker Hub
                                   ▼     ▼
-            myuser/api:v0.0.1    myuser/api:<sha>
+        myuser/ifritah-api:<tag>  myuser/ifritah-web:<tag>
                                   │                   │
               │ manual            │ webhook/dev deploy
                                   ▼                   ▼
@@ -103,10 +103,10 @@ sudo ./scripts/deployctl.sh setup dev-tenant        # creates the one dev tenant
 | Task | Command |
 |---|---|
 | Create prod tenant | `sudo ./scripts/deployctl.sh tenant create acme` |
-| Manual prod deploy (one client) | `sudo ./scripts/deployctl.sh fleet sync myuser/api:v0.0.1 --tenant acme` |
-| Manual prod deploy (all clients) | `sudo ./scripts/deployctl.sh fleet sync myuser/api:v0.0.1` |
-| Pin a tenant to a fixed image | `sudo ./scripts/deployctl.sh tenant pin acme --backend myuser/api:v0.0.1` |
-| Rollback | `sudo ./scripts/deployctl.sh tenant rollback acme --to myuser/api:abc1234` |
+| Manual prod deploy (one client) | `sudo ./scripts/deployctl.sh fleet sync myuser/ifritah-api:v0.0.1 --tenant acme` |
+| Manual prod deploy (all clients) | `sudo ./scripts/deployctl.sh fleet sync myuser/ifritah-api:v0.0.1` |
+| Pin a tenant to a fixed image | `sudo ./scripts/deployctl.sh tenant pin acme --backend myuser/ifritah-api:v0.0.1` |
+| Rollback | `sudo ./scripts/deployctl.sh tenant rollback acme --to myuser/ifritah-api:abc1234` |
 | List tenants | `sudo ./scripts/deployctl.sh tenant list` |
 | Tenant status | `sudo ./scripts/deployctl.sh tenant status acme` |
 | Tail logs | `sudo ./scripts/deployctl.sh tenant logs acme --type backend` |
@@ -165,17 +165,23 @@ Backend and frontend releases must use the same `VERSION` value. The dashboard v
 
 Each app repo also ships a **PR branch-image workflow**
 (`.github/workflows/qa-branch-image.yml`, templated in
-`templates/{backend,frontend}/.github/workflows/qa-release.yml`). On every pull
-request it builds and pushes two tags to the configured Docker Hub repo:
+`templates/{backend,frontend}/.github/workflows/qa-branch-image.yml`). On every
+same-repository pull request it builds and pushes two tags to the configured
+Docker Hub repo:
 
-- `:<branch-name>` — a safe, branch-derived mutable tag (always the latest
+- `:pr-<branch-name>` — a safe, branch-derived mutable tag (always the latest
   build for that branch), and
-- `:<branch-name>-<shortsha>` — an immutable per-commit reference.
+- `:pr-<branch-name>-<shortsha>` — an immutable per-commit reference.
 
 The dashboard's searchable image selector lists these tags straight from Docker
 Hub for the configured account, showing only tags present in **both** the
 backend and frontend repos so a branch build is only offered when both apps
 have a matching image.
+
+Dashboard images embed a non-secret build version and commit identity. The
+published image exposes it through `/version`, the dashboard footer, and
+`/healthz` response headers; its embedded web-bundle digest covers templates and
+static assets so mixed UI bundles can be detected before publication.
 
 ## GitHub secrets to set in each app repo
 

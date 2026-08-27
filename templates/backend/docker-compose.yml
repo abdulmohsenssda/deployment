@@ -29,6 +29,7 @@ services:
       context: .
       args:
         APP_VERSION: ${APP_VERSION:-v0.0.1}
+        APP_COMMIT: ${APP_COMMIT:-local}
     image: ${IMAGE_NAME:-local/api}:${APP_VERSION:-v0.0.1}
     depends_on:
       mysql:

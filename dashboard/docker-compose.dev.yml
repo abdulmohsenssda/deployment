@@ -7,6 +7,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-local}
     image: ssdawweq/dokku-dashboard:dev
     container_name: dokku-dashboard-dev
     restart: unless-stopped

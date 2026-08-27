@@ -16,6 +16,7 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
   refreshes (an interrupted run is shown as failed)
 - Command palette (Ctrl/Cmd+K)
 - Single-admin login (bcrypt) with signed cookie session
+- Public `/version` build metadata endpoint and footer identity
 
 The live app log pane is bounded in the browser to the newest 2,000 lines and
 1 MiB of UTF-8 text. Older lines are evicted as new output arrives; an
@@ -191,3 +192,12 @@ dokku letsencrypt:enable admin-prod
   that file writable only by the dashboard container and server admins.
 - The container does not need its own `dokku` user; commands execute inside
   the dokku container via `docker exec`.
+
+## Build identity
+
+Published dashboard images embed a non-secret version and commit identity in
+the binary. The image workflow passes `BUILD_VERSION` and `BUILD_COMMIT`,
+publishes matching OCI labels, and runs dashboard tests before publication.
+Operators can inspect the identity at `/version` or in the dashboard footer;
+`/healthz` keeps its plain `ok` response and adds the same identity in headers.
+The `/version` asset digest covers both embedded templates and static assets.

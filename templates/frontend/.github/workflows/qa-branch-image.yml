@@ -1,0 +1,63 @@
+# Build a reviewable frontend image for same-repository pull requests.
+# Fork pull requests are intentionally not given Docker Hub credentials.
+name: Build PR Frontend Image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/ifritah-web
+
+jobs:
+  build-and-push:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve safe branch tags
+        id: tags
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$HEAD_REF" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' \
+            | cut -c1-100)"
+          [ -n "$slug" ] || slug="branch"
+          short_sha="${HEAD_SHA:0:12}"
+          echo "branch_tag=pr-${slug}" >> "$GITHUB_OUTPUT"
+          echo "immutable_tag=pr-${slug}-${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.branch_tag }}
+            ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.immutable_tag }}
+          build-args: |
+            APP_VERSION=${{ steps.tags.outputs.branch_tag }}
+            APP_COMMIT=${{ github.event.pull_request.head.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.tags.outputs.branch_tag }}
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.source=${{ github.event.pull_request.head.repo.html_url }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
