@@ -415,6 +415,44 @@ test('closed command stream shows a failure and restores controls', async ({ pag
   expect(pageErrors).toHaveLength(0);
 });
 
+test('command Run sends only one request while the response is streaming', async ({ page }) => {
+  await login(page);
+
+  let postCount = 0;
+  let releaseResponse!: () => void;
+  const responseReleased = new Promise<void>(resolve => { releaseResponse = resolve; });
+  await page.route('**/scripts/status/run', async route => {
+    postCount++;
+    await responseReleased;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: mocked output\n\nevent: done\ndata: end\n\n',
+    });
+  });
+
+  await page.goto(BASE + '/scripts/status');
+  const runButton = page.locator('#run-form button[type="submit"]');
+  const clearButton = page.locator('#clear-out');
+  await expect(runButton).toBeVisible();
+
+  await page.evaluate(() => {
+    const form = document.getElementById('run-form');
+    if (!form) throw new Error('run form not found');
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+
+  await expect(runButton).toBeDisabled();
+  await expect(clearButton).toBeDisabled();
+  await expect.poll(() => postCount).toBe(1);
+  releaseResponse();
+  await expect(runButton).toBeEnabled();
+  await expect(clearButton).toBeEnabled();
+  await expect(page.locator('#out')).toContainText('mocked output');
+  expect(postCount).toBe(1);
+});
+
 test('no QA-specific wording anywhere in the UI', async ({ page }) => {
   await login(page);
   const body = await page.textContent('body');

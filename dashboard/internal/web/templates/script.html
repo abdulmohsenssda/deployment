@@ -80,7 +80,7 @@
     </div>
     {{end}}
     {{end}}
-    <div class="form-footer">
+    <div id="run-controls" class="form-footer">
       <button type="submit" class="btn btn-primary">▶ Run</button>
       <button type="button" id="clear-out" class="btn btn-secondary">Clear output</button>
       {{if .Danger}}<span class="danger-note">Confirmation will be requested before execution.</span>{{end}}
@@ -108,6 +108,18 @@
   const form = document.getElementById('run-form');
   const out = document.getElementById('out');
   const status = document.getElementById('run-status');
+  const runControls = document.getElementById('run-controls');
+  const runButtons = runControls ? runControls.querySelectorAll('button') : [];
+  let runInProgress = false;
+
+  function setRunControlsBusy(busy) {
+    form.setAttribute('aria-busy', String(busy));
+    if (runControls) {
+      runControls.setAttribute('aria-busy', String(busy));
+      runControls.setAttribute('aria-disabled', String(busy));
+    }
+    runButtons.forEach(button => { button.disabled = busy; });
+  }
   const danger = {{.Danger}};
   const slug = '{{.Slug}}';
   const STORE_KEY = 'script-form:' + slug;
@@ -257,6 +269,9 @@
   restoreOutput();
 
   async function runCommand() {
+    if (runInProgress) return;
+    runInProgress = true;
+    setRunControlsBusy(true);
     try {
       if (danger && !confirm('This script may modify or delete data. Continue?')) return;
       const release = selectedRelease();
@@ -300,6 +315,9 @@
       appendLine('✖ ' + message);
       setOutputState('failure', 'Failed — ' + message);
       setStatus(message, 'failure');
+    } finally {
+      setRunControlsBusy(false);
+      runInProgress = false;
     }
   }
 
