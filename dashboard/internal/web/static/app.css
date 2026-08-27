@@ -635,6 +635,10 @@ input, select, textarea { font: inherit; color: inherit; }
   font-size: 12px;
   text-align: center;
 }
+.terminal-compact { height: 180px; }
+#activity[data-state="loading"],
+#activity[data-state="empty"] { color: var(--text-dim); }
+#activity[data-state="error"] { color: var(--red); }
 .log-link { color: #58a6ff; text-decoration: underline; }
 
 /* ── Commands index ───────────────────────────────────────── */

@@ -10,3 +10,6 @@ swarm/join-command.txt
 dev-data/
 dashboard/bin/
 dashboard/node_modules/
+dashboard/e2e/node_modules/
+dashboard/e2e/test-results/
+dashboard/.dashboard-logs/

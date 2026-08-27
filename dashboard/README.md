@@ -7,7 +7,7 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
 - Tenant-first actions: select a tenant, then update version / restart / stop / delete
 - Compatible version picker: one release tag maps to backend and frontend images
 - Release notes page with broken-version status
-- Live log streaming (SSE) + ring-buffer log aggregation + downloadable dump
+- Live log streaming (SSE) + durable ring-buffer logs/activity + downloadable dump
 - Grouped command index (read-only/status, deployment/lifecycle, backup/restore,
   cleanup/deletion) with impact and confirmation cues
 - Command forms backed by `scripts/deployctl.sh` with streamed output
@@ -47,6 +47,7 @@ runtime besides the docker socket.
 | `PUBLIC_PROTOCOL`     | no       | `http` in dev, `https` in prod |
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
+| `LOG_DIR`             | no       | `/opt/dashboard-logs` |
 | `COOKIE_SECURE`       | no       | `false`         |
 | `DASHBOARD_SNAPSHOT_WORKERS` | no | `8`             |
 | `DASHBOARD_ENV_FILE`  | no       | —               |
@@ -121,6 +122,10 @@ go run ./cmd/hashpw 'your-password'
 ```
 
 Set `DASHBOARD_ENV_FILE` to a writable mounted copy of `dashboard.env` to enable password changes from the UI. The production compose file mounts `./dashboard.env` at `/app/dashboard.env` and writes the new `ADMIN_PASSWORD_HASH` there.
+
+The dashboard stores application logs and lifecycle activity as private JSONL
+files under `LOG_DIR`; mount that directory on durable storage to retain the
+history across dashboard restarts.
 
 Generate a session key (so sessions survive restarts):
 

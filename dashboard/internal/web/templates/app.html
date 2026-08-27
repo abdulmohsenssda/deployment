@@ -43,16 +43,18 @@
 <div class="panel">
   <div class="panel-title">Actions</div>
   <div class="action-row">
-    <button class="btn btn-success"
-            hx-post="/apps/{{.Name}}/start" hx-swap="none">▶ Start</button>
-    <button class="btn btn-danger"
-            hx-post="/apps/{{.Name}}/stop" hx-confirm="Stop {{.Name}}?" hx-swap="none">⏹ Stop</button>
-    <button class="btn btn-secondary"
-            hx-post="/apps/{{.Name}}/restart" hx-confirm="Restart {{.Name}}?" hx-swap="none">↺ Restart</button>
-    <button class="btn btn-secondary"
-            hx-post="/apps/{{.Name}}/rebuild" hx-confirm="Rebuild {{.Name}}?" hx-swap="none">⟳ Rebuild</button>
+    <button class="app-act btn btn-success" data-app-act="start">▶ Start</button>
+    <button class="app-act btn btn-danger" data-app-act="stop" data-confirm="Stop {{.Name}}?">⏹ Stop</button>
+    <button class="app-act btn btn-secondary" data-app-act="restart" data-confirm="Restart {{.Name}}?">↺ Restart</button>
+    <button class="app-act btn btn-secondary" data-app-act="rebuild" data-confirm="Rebuild {{.Name}}?">⟳ Rebuild</button>
     <a href="/apps/{{.Name}}/logs.txt" class="btn btn-secondary" style="margin-left:auto">⬇ Download logs</a>
   </div>
+</div>
+
+<!-- Durable action history -->
+<div class="panel activity-panel">
+  <div class="panel-title">Recent activity</div>
+  <pre id="activity" class="terminal terminal-compact" data-state="loading" aria-live="polite">Loading recent activity…</pre>
 </div>
 
 <!-- Live log stream -->
@@ -64,6 +66,78 @@
   </div>
   <pre id="logs" class="terminal" data-stream-url="/apps/{{.Name}}/logs"></pre>
 </div>
+
+<script>
+(function () {
+  const activity = document.getElementById('activity');
+  const actionBtns = Array.from(document.querySelectorAll('.app-act'));
+  let actionBusy = false;
+  let activityDirty = false;
+
+  function setActivityState(state, text) {
+    if (!activity) return;
+    activity.dataset.state = state;
+    activity.textContent = text;
+  }
+
+  function appendActivity(line) {
+    if (!activity) return;
+    activityDirty = true;
+    if (activity.dataset.state !== 'ready') activity.textContent = '';
+    activity.dataset.state = 'ready';
+    activity.textContent += (activity.textContent ? '\n' : '') + line;
+    activity.scrollTop = activity.scrollHeight;
+  }
+
+  function renderActivity(entries) {
+    if (!activity || activityDirty) return;
+    if (!Array.isArray(entries) || entries.length === 0) {
+      setActivityState('empty', 'No recent activity.');
+      return;
+    }
+    const lines = entries.map(entry => {
+      const at = entry?.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+      return at + (entry?.line || '');
+    });
+    setActivityState('ready', lines.join('\n'));
+    activity.scrollTop = activity.scrollHeight;
+  }
+
+  fetch('/api/apps/{{.Name}}/activity', { headers: { Accept: 'application/json' } })
+    .then(response => {
+      if (!response.ok) throw new Error('activity request failed');
+      return response.json();
+    })
+    .then(data => renderActivity(data?.entries))
+    .catch(() => {
+      if (!activityDirty) setActivityState('error', 'Unable to load recent activity.');
+    });
+
+  actionBtns.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (actionBusy) return;
+      const verb = btn.dataset.appAct;
+      if (btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
+      actionBusy = true;
+      actionBtns.forEach((item) => { item.disabled = true; });
+      const previous = btn.textContent;
+      btn.textContent = 'Working…';
+      appendActivity('--- ' + verb + ' {{.Name}} ---');
+      try {
+        const response = await fetch('/apps/{{.Name}}/' + verb, { method: 'POST' });
+        const text = await response.text();
+        appendActivity((response.ok ? '' : '✖ ') + text.trimEnd());
+      } catch (error) {
+        appendActivity('✖ ' + verb + ' failed: ' + (error?.message || error));
+      } finally {
+        btn.textContent = previous;
+        actionBtns.forEach((item) => { item.disabled = false; });
+        actionBusy = false;
+      }
+    });
+  });
+})();
+</script>
 {{end}}
 {{end}}
 

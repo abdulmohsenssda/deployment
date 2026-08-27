@@ -41,7 +41,10 @@ func main() {
 	}
 
 	client := dokku.New(cfg.DockerBin, cfg.DokkuContainer)
-	store := logbuf.New(cfg.LogBufferLines)
+	store, err := logbuf.NewPersistent(cfg.LogBufferLines, cfg.LogDir)
+	if err != nil {
+		log.Fatalf("logs: %v", err)
+	}
 	runner := scripts.NewRunner(cfg.DockerBin, cfg.RunnerImage, cfg.ScriptsHostPath, cfg.ConfigFile)
 	if cfg.BackupDir != "" {
 		runner.SetBackupDir(cfg.BackupDir)

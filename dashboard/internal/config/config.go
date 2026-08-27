@@ -21,7 +21,8 @@ type Config struct {
 	AdminUser        string // single admin username.
 	AdminHash        string // bcrypt hash of the admin password.
 	SessionKey       []byte // cookie signing key.
-	LogBufferLines   int    // ring-buffer size per app for log aggregation.
+	LogBufferLines   int    // ring-buffer size per log/activity key.
+	LogDir           string // persistent directory for application and action logs.
 	CookieSecure     bool   // set Secure flag on session cookie.
 	ScriptsHostPath  string // host path to /opt/deployment (for sidecar runner).
 	RunnerImage      string // image used to execute deployment scripts.
@@ -50,6 +51,7 @@ type Config struct {
 //	PUBLIC_PROTOCOL=http|https (default "http", or "https" for prod)
 //	SESSION_KEY=<hex>         (auto-generated if missing — sessions reset on restart)
 //	LOG_BUFFER_LINES=2000
+//	LOG_DIR=/opt/dashboard-logs
 //	COOKIE_SECURE=false
 func Load() (Config, error) {
 	c := Config{
@@ -62,6 +64,7 @@ func Load() (Config, error) {
 		AdminUser:        os.Getenv("ADMIN_USER"),
 		AdminHash:        os.Getenv("ADMIN_PASSWORD_HASH"),
 		LogBufferLines:   envInt("LOG_BUFFER_LINES", 2000),
+		LogDir:           envOr("LOG_DIR", "/opt/dashboard-logs"),
 		CookieSecure:     strings.EqualFold(os.Getenv("COOKIE_SECURE"), "true"),
 		ScriptsHostPath:  envOr("SCRIPTS_HOST_PATH", ""),
 		RunnerImage:      envOr("SCRIPT_RUNNER_IMAGE", "mysql:8.0"),

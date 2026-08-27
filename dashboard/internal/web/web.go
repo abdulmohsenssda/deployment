@@ -102,6 +102,7 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		r.Get("/apps/{name}/logs", s.handleLogStream)
 		r.Get("/apps/{name}/logs.txt", s.handleLogDump)
 		r.Get("/api/apps", s.handleAPIApps)
+		r.Get("/api/apps/{name}/activity", s.handleAppActivity)
 		r.Get("/api/image-tags", s.handleImageTags)
 		r.Get("/events", s.handleEvents)
 		r.Get("/settings/password", s.handlePasswordPage)
@@ -427,7 +428,19 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
+	activity := activityKey("app", name)
+	s.recordActivity(activity, fmt.Sprintf("--- %s %s @ %s ---", verb, name, time.Now().UTC().Format(time.RFC3339)))
 	out, err := s.dokku.Action(ctx, name, verb)
+	if err != nil {
+		s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, name))
+		s.recordActivityBlock(activity, out)
+		s.recordActivity(activity, err.Error())
+		s.recordActivity(activity, "--- action failed ---")
+	} else {
+		s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, name))
+		s.recordActivityBlock(activity, out)
+		s.recordActivity(activity, "--- action complete ---")
+	}
 	s.snapshots.RefreshSoon()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err != nil {
@@ -459,7 +472,7 @@ func (s *server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.dokku.StreamLogs(r.Context(), name, w, func(line string) {
-		s.logs.Append(name, line)
+		s.recordLog(name, line)
 	})
 }
 

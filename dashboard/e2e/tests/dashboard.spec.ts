@@ -538,6 +538,52 @@ test('password form stacks without overlap on narrow screens', async ({ page }) 
   expect(geometry.submit.top).toBeGreaterThanOrEqual(lastField.input.bottom);
 });
 
+// ── app activity ─────────────────────────────────────────────────────────────
+
+test('app recent activity panel renders persisted entries', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/apps/dev-git-backend/activity', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      entries: [
+        { at: '2026-08-27T01:00:00Z', line: 'OK start dev-git-backend' },
+      ],
+    }),
+  }));
+  await page.goto(BASE + '/apps/dev-git-backend');
+
+  await expect(page.locator('#activity')).toContainText('OK start dev-git-backend');
+  await expect(page.locator('#activity')).toHaveAttribute('data-state', 'ready');
+});
+
+test('app recent activity panel shows an empty state', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/apps/dev-git-backend/activity', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ entries: [] }),
+  }));
+  await page.goto(BASE + '/apps/dev-git-backend');
+
+  await expect(page.locator('#activity')).toHaveText('No recent activity.');
+  await expect(page.locator('#activity')).toHaveAttribute('data-state', 'empty');
+});
+
+test('app recent activity panel exposes loading and error states', async ({ page }) => {
+  await login(page);
+  let releaseRequest!: () => void;
+  const requestBlocked = new Promise<void>(resolve => { releaseRequest = resolve; });
+  await page.route('**/api/apps/dev-git-backend/activity', async route => {
+    await requestBlocked;
+    await route.abort();
+  });
+  await page.goto(BASE + '/apps/dev-git-backend');
+
+  await expect(page.locator('#activity')).toHaveText('Loading recent activity…');
+  releaseRequest();
+  await expect(page.locator('#activity')).toHaveText('Unable to load recent activity.', { timeout: 3000 });
+  await expect(page.locator('#activity')).toHaveAttribute('data-state', 'error');
+});
+
 // ── sign out ──────────────────────────────────────────────────────────────────
 
 test('sign out redirects to login', async ({ page }) => {

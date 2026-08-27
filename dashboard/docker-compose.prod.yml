@@ -20,6 +20,7 @@ services:
       DOCKER_BIN: docker
       DOKKU_CONTAINER: ${DOKKU_CONTAINER:-dokku}
       LOG_BUFFER_LINES: 5000
+      LOG_DIR: /opt/dashboard-logs
       COOKIE_SECURE: "true"
       SCRIPTS_HOST_PATH: ${SCRIPTS_HOST_PATH:-/opt/deployment}
       SCRIPT_RUNNER_IMAGE: ${SCRIPT_RUNNER_IMAGE:-dokku/dokku:latest}
@@ -35,6 +36,7 @@ services:
       - ${SCRIPTS_HOST_PATH:-/opt/deployment}:/opt/deployment:ro
       - ${BACKUP_DIR:-/opt/tenant-backups}:${BACKUP_DIR:-/opt/tenant-backups}
       - ${STORAGE_ROOT:-/opt/tenant-data}:/opt/tenant-data
+      - ${LOG_DIR:-/opt/dashboard-logs}:/opt/dashboard-logs
     logging:
       driver: json-file
       options:
