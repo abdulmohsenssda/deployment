@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 )
 
 // Client is a thin wrapper around the docker + dokku CLIs.
@@ -370,9 +372,9 @@ func (c *Client) Action(ctx context.Context, app, verb string) (string, error) {
 	return c.dokku(ctx, "ps:"+verb, app)
 }
 
-// StreamLogs invokes `dokku logs --tail -t <app>` and writes lines to w until
-// the context is cancelled. The writer is flushed after every line if it
-// implements http.Flusher (caller's responsibility — see web.handleLogs).
+// StreamLogs invokes `dokku logs --tail -t <app>` and writes sanitized lines
+// to w until the context is cancelled. The writer is flushed after every line
+// if it implements http.Flusher (caller's responsibility — see web.handleLogs).
 func (c *Client) StreamLogs(ctx context.Context, app string, w io.Writer, onLine func(string)) error {
 	cmd := exec.CommandContext(ctx, c.dockerBin, "exec", "-i", c.dokkuName,
 		"dokku", "logs", app, "--tail", "-t")
@@ -387,7 +389,7 @@ func (c *Client) StreamLogs(ctx context.Context, app string, w io.Writer, onLine
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := ansi.Strip(scanner.Text())
 		if onLine != nil {
 			onLine(line)
 		}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 )
 
 // Entry is a single buffered log line with its capture timestamp.
@@ -39,8 +41,10 @@ func New(capPerApp int) *Store {
 	}
 }
 
-// Append records a line for app. Safe for concurrent use.
+// Append records a line for app after removing terminal controls. Safe for
+// concurrent use.
 func (s *Store) Append(app, line string) {
+	line = ansi.Strip(line)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	buf, ok := s.bufs[app]

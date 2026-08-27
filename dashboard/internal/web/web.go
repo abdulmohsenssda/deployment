@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/config"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/dokku"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/logbuf"
@@ -435,7 +437,9 @@ func (s *server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	for _, e := range s.logs.Snapshot(name) {
-		fmt.Fprintf(w, "data: %s %s\n\n", e.At.UTC().Format(time.RFC3339), e.Line)
+		if err := writeSSEData(w, e.At.UTC().Format(time.RFC3339)+" "+e.Line); err != nil {
+			return
+		}
 	}
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
@@ -455,6 +459,17 @@ func (s *server) handleLogDump(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.log"`, name))
 	_, _ = w.Write([]byte(s.logs.Dump(name)))
+}
+
+func writeSSEData(w io.Writer, value string) error {
+	value = ansi.Strip(value)
+	for _, line := range strings.Split(value, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "\n")
+	return err
 }
 
 func (s *server) handleAPIApps(w http.ResponseWriter, r *http.Request) {

@@ -128,7 +128,7 @@
   }
 
   function appendLine(line, persist = true) {
-    const value = String(line);
+    const value = window.stripTerminalControls(String(line));
     outputLines.push(value);
     outputLines = outputLines.slice(-window.DashboardOperation.maxEntries);
     out.querySelector('.terminal-empty')?.remove();

@@ -19,6 +19,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 )
 
 // Field describes one input on a script's form.
@@ -677,7 +679,7 @@ func validateArgs(argv []string) error {
 }
 
 // Run executes a script with already-built argv (extra flags after the script
-// name). Output is streamed to w line-by-line as SSE `data:` frames.
+// name). Sanitized output is streamed to w line-by-line as SSE `data:` frames.
 func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv []string) error {
 	sc := Find(scriptName)
 	if sc == nil {
@@ -755,7 +757,7 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := stripAnsi(scanner.Text())
+		line := ansi.Strip(scanner.Text())
 		if _, werr := fmt.Fprintf(w, "data: %s\n\n", line); werr != nil {
 			_ = cmd.Process.Kill()
 			break
@@ -767,6 +769,4 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	return cmd.Wait()
 }
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-
-func stripAnsi(s string) string { return ansi.ReplaceAllString(strings.ReplaceAll(s, "\r", ""), "") }
+func stripAnsi(s string) string { return ansi.Strip(s) }

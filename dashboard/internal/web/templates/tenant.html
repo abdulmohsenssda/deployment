@@ -267,7 +267,7 @@
   }
 
   function append(line, persist = true) {
-    const value = String(line);
+    const value = window.stripTerminalControls(String(line));
     activityLines.push(value);
     activityLines = activityLines.slice(-window.DashboardOperation.maxEntries);
     out.querySelector('.terminal-empty')?.remove();

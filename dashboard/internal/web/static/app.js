@@ -347,7 +347,7 @@
       next.onmessage = ev => {
         if (stream !== next || closed) return;
         const stuck = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-        pre.textContent += ev.data + '\n';
+        pre.textContent += window.stripTerminalControls(ev.data) + '\n';
         if (stuck) pre.scrollTop = pre.scrollHeight;
       };
       next.onerror = () => {
