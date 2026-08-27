@@ -226,6 +226,86 @@ test('password page is accessible', async ({ page }) => {
   await expect(page.locator('h1, .page-title')).toBeVisible();
 });
 
+test('releases, password, and palette use dashboard styles', async ({ page }) => {
+  await login(page);
+
+  await page.goto(BASE + '/releases');
+  await expect(page.locator('.page-hero')).toBeVisible();
+  expect(await page.locator('.ops-hero, .command-link, .action-chip').count()).toBe(0);
+
+  await page.goto(BASE + '/settings/password');
+  await expect(page.locator('.form-page .form-panel')).toBeVisible();
+  expect(await page.locator('[class*="text-zinc-"], [class*="ring-"], [class*="rounded-"]').count()).toBe(0);
+
+  await page.goto(BASE + '/');
+  await page.click('#palette-btn');
+  await expect(page.locator('.palette-box')).toBeVisible();
+});
+
+test('fleet layout fits a narrow mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto(BASE + '/');
+  await expect(page.locator('.skel-row')).toHaveCount(0, { timeout: 15000 });
+
+  const metrics = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+  }));
+  expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+});
+
+test('tenant backup panel fits a narrow mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto(BASE + '/tenants/dev-git');
+  await expect(page.locator('#backup-table')).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const table = document.getElementById('backup-table');
+    return {
+      documentWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      tableWidth: table?.getBoundingClientRect().width || 0,
+      tableScrollWidth: table?.scrollWidth || 0,
+    };
+  });
+  expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+  expect(metrics.tableScrollWidth).toBeLessThanOrEqual(metrics.tableWidth + 1);
+});
+
+test('tenant activity remains visible after page reload', async ({ page }) => {
+  await login(page);
+  const action = await page.request.post(BASE + '/tenants/dev-git/start');
+  expect(action.ok()).toBe(true);
+
+  const activity = await page.request.get(BASE + '/api/tenants/dev-git/activity');
+  expect(activity.ok()).toBe(true);
+  const body = await activity.json();
+  expect(body.entries.some((entry: { line?: string }) => entry.line?.includes('OK start'))).toBe(true);
+
+  await page.goto(BASE + '/tenants/dev-git');
+  await expect(page.locator('#tenant-out')).toContainText('OK start', { timeout: 5000 });
+  await page.reload();
+  await expect(page.locator('#tenant-out')).toContainText('OK start', { timeout: 5000 });
+});
+
+test('app lifecycle controls show progress and response output', async ({ page }) => {
+  await login(page);
+  await page.route('**/apps/dev-git-backend/start', async route => {
+    await new Promise(r => setTimeout(r, 500));
+    await route.fulfill({ contentType: 'text/plain; charset=utf-8', body: 'OK start dev-git-backend\n' });
+  });
+  await page.goto(BASE + '/apps/dev-git-backend');
+
+  const start = page.locator('.app-act[data-app-act="start"]');
+  await start.click();
+  await expect(start).toBeDisabled();
+  await expect(start).toContainText('Working');
+  await expect(start).toBeEnabled({ timeout: 4000 });
+  await expect(page.locator('#activity')).toContainText('OK start dev-git-backend');
+});
+
 // ── sign out ──────────────────────────────────────────────────────────────────
 
 test('sign out redirects to login', async ({ page }) => {
@@ -370,4 +450,3 @@ test('tenant sync button disables while a sync is streaming', async ({ page }) =
   await expect(syncBtn).toBeDisabled();
   await expect(syncBtn).toBeEnabled({ timeout: 4000 });
 });
-

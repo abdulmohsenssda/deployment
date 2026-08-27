@@ -1,13 +1,13 @@
 {{define "content"}}
-<section class="ops-hero compact">
-  <div>
-    <div class="eyebrow">releases</div>
-    <h1>Version Catalog</h1>
-    <p>Selecting a version deploys the matching backend and frontend image tags.</p>
+<section class="page-header page-hero">
+  <div class="page-header-left">
+    <span class="eyebrow">Releases</span>
+    <h1 class="page-title">Version Catalog</h1>
+    <p class="page-subtitle">Selecting a version deploys the matching backend and frontend image tags.</p>
   </div>
-  <div class="hero-actions">
-    <a href="/scripts/create-tenant" class="command-link">New tenant</a>
-    <a href="/scripts/update-tenant" class="command-link secondary">Update tenant</a>
+  <div class="page-header-right">
+    <a href="/scripts/create-tenant" class="btn btn-primary">New tenant</a>
+    <a href="/scripts/update-tenant" class="btn btn-secondary">Update tenant</a>
   </div>
 </section>
 
@@ -37,9 +37,9 @@
       {{end}}
     </ul>
     <div class="release-actions">
-      <a href="/scripts/create-tenant?image_version={{urlquery .Tag}}" class="action-chip good">Create tenant</a>
-      <a href="/scripts/update-tenant?image_version={{urlquery .Tag}}" class="action-chip">Update tenant</a>
-      <a href="/scripts/deploy-all?image_version={{urlquery .Tag}}" class="action-chip">Fleet sync</a>
+      <a href="/scripts/create-tenant?image_version={{urlquery .Tag}}" class="btn-action good">Create tenant</a>
+      <a href="/scripts/update-tenant?image_version={{urlquery .Tag}}" class="btn-action">Update tenant</a>
+      <a href="/scripts/deploy-all?image_version={{urlquery .Tag}}" class="btn-action">Fleet sync</a>
     </div>
   </article>
   {{end}}

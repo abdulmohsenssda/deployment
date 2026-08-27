@@ -7,7 +7,9 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
 - Tenant-first actions: select a tenant, then update version / restart / stop / delete
 - Compatible version picker: one release tag maps to backend and frontend images
 - Release notes page with broken-version status
-- Live log streaming (SSE) + ring-buffer log aggregation + downloadable dump
+- Live log streaming (SSE) + persistent ring-buffer log aggregation +
+  downloadable dump
+- Durable activity history for tenant, app, and command operations
 - Command forms backed by `scripts/deployctl.sh` with streamed output
 - Command palette (Ctrl/Cmd+K)
 - Single-admin login (bcrypt) with signed cookie session
@@ -32,10 +34,16 @@ runtime besides the docker socket.
 | `BASE_DOMAIN`         | no       | `localhost`     |
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
+| `LOG_DIR`             | no       | `/opt/dashboard-logs` |
 | `COOKIE_SECURE`       | no       | `false`         |
 | `DASHBOARD_SNAPSHOT_WORKERS` | no | `8`             |
 | `DASHBOARD_ENV_FILE`  | no       | —               |
 | `TENANT_NAME_PREFIX`  | no       | —               |
+| `STORAGE_ROOT`        | no       | `/opt/tenant-data` |
+| `MYSQL_HOST`          | no       | `127.0.0.1`   |
+| `MYSQL_PORT`          | no       | `3306`        |
+| `MYSQL_ROOT_USER`     | no       | `root`        |
+| `MYSQL_ROOT_PASSWORD` | no       | —             |
 
 The image picker accepts exact SemVer releases and branch/channel tags such as
 `dev`, `latest`, or a PR branch tag. Tags are discovered from the configured
@@ -59,6 +67,14 @@ tenant `acme` creates Dokku apps `dev-acme-backend` /
 For two dashboards on one server, set this in each dashboard's
 `dashboard.env`; keep the shared `config.env` prefix unset or point each
 dashboard at a matching `DEPLOY_CONFIG_FILE`.
+
+`LOG_DIR` is a persistent, writable directory mounted by both Compose
+profiles. The dashboard stores application log lines and recent operation
+activity as private JSONL files there, then reloads them on startup. Keep this
+directory on durable server storage and include it in the server backup policy.
+`STORAGE_ROOT` is mounted into script runner sidecars so user-created and
+automatic backups include tenant persistent files. Set the `MYSQL_*` values in
+the dashboard environment when SQL backups or accounting exports are enabled.
 
 Publishing `BACKEND_IMAGE:v0.0.1` and `FRONTEND_IMAGE:v0.0.1` makes `v0.0.1` selectable as a compatible pair. Re-pushing without changing `VERSION` overwrites that same image tag; increment `VERSION` only for a new feature or bug-fix release.
 
@@ -112,9 +128,16 @@ openssl rand -hex 32
 ## Run locally (dev)
 
 ```sh
-docker compose -f docker-compose.dev.yml up --build
+# dev-up.sh derives SCRIPTS_HOST_PATH from this checkout for the sidecar runner.
+bash ./dev-up.sh
 # UI:  http://localhost:8088
 # Login: admin / admin   (override via ADMIN_USER / ADMIN_PASSWORD_HASH env)
+```
+
+To invoke Compose directly, provide the host checkout path explicitly:
+
+```sh
+SCRIPTS_HOST_PATH="$(cd .. && pwd)" docker compose -f docker-compose.dev.yml up --build
 ```
 
 The dashboard talks to whatever container is named `dokku` on the **same Docker

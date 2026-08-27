@@ -39,16 +39,18 @@
 <div class="panel">
   <div class="panel-title">Actions</div>
   <div class="action-row">
-    <button class="btn btn-success"
-            hx-post="/apps/{{.Name}}/start" hx-swap="none">▶ Start</button>
-    <button class="btn btn-danger"
-            hx-post="/apps/{{.Name}}/stop" hx-confirm="Stop {{.Name}}?" hx-swap="none">⏹ Stop</button>
-    <button class="btn btn-secondary"
-            hx-post="/apps/{{.Name}}/restart" hx-confirm="Restart {{.Name}}?" hx-swap="none">↺ Restart</button>
-    <button class="btn btn-secondary"
-            hx-post="/apps/{{.Name}}/rebuild" hx-confirm="Rebuild {{.Name}}?" hx-swap="none">⟳ Rebuild</button>
+    <button class="app-act btn btn-success" data-app-act="start">▶ Start</button>
+    <button class="app-act btn btn-danger" data-app-act="stop" data-confirm="Stop {{.Name}}?">⏹ Stop</button>
+    <button class="app-act btn btn-secondary" data-app-act="restart" data-confirm="Restart {{.Name}}?">↺ Restart</button>
+    <button class="app-act btn btn-secondary" data-app-act="rebuild" data-confirm="Rebuild {{.Name}}?">⟳ Rebuild</button>
     <a href="/apps/{{.Name}}/logs.txt" class="btn btn-secondary" style="margin-left:auto">⬇ Download logs</a>
   </div>
+</div>
+
+<!-- Durable action history -->
+<div class="panel activity-panel">
+  <div class="panel-title">Recent activity</div>
+  <pre id="activity" class="terminal terminal-compact" aria-live="polite"></pre>
 </div>
 
 <!-- Live log stream -->
@@ -59,7 +61,53 @@
 
 <script>
 (function () {
+  const activity = document.getElementById('activity');
   const pre = document.getElementById('logs');
+  const actionBtns = Array.from(document.querySelectorAll('.app-act'));
+  let actionBusy = false;
+  let activityDirty = false;
+  function appendActivity(line) {
+    if (!activity) return;
+    activityDirty = true;
+    activity.textContent += line + '\n';
+    activity.scrollTop = activity.scrollHeight;
+  }
+  actionBtns.forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (actionBusy) return;
+      const verb = btn.dataset.appAct;
+      if (btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
+      actionBusy = true;
+      actionBtns.forEach((item) => { item.disabled = true; });
+      const previous = btn.textContent;
+      btn.textContent = 'Working…';
+      appendActivity('--- ' + verb + ' {{.Name}} ---');
+      try {
+        const res = await fetch('/apps/{{.Name}}/' + verb, { method: 'POST' });
+        const text = await res.text();
+        appendActivity((res.ok ? '' : '✖ ') + text.trimEnd());
+      } catch (e) {
+        appendActivity('✖ ' + verb + ' failed: ' + (e && e.message ? e.message : e));
+      } finally {
+        btn.textContent = previous;
+        actionBtns.forEach((item) => { item.disabled = false; });
+        actionBusy = false;
+      }
+    });
+  });
+  fetch('/api/apps/{{.Name}}/activity')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data || !activity || activityDirty) return;
+      const entries = data.entries || [];
+      activity.textContent = entries.map(entry => {
+        const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+        return at + (entry.line || '');
+      }).join('\n');
+      if (entries.length) activity.textContent += '\n';
+      activity.scrollTop = activity.scrollHeight;
+    })
+    .catch(() => {});
   const es = new EventSource('/apps/{{.Name}}/logs');
   es.onmessage = (ev) => {
     const stuck = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;

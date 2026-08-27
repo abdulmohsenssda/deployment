@@ -107,6 +107,9 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		r.Get("/apps/{name}/logs", s.handleLogStream)
 		r.Get("/apps/{name}/logs.txt", s.handleLogDump)
 		r.Get("/api/apps", s.handleAPIApps)
+		r.Get("/api/apps/{name}/activity", s.handleAppActivity)
+		r.Get("/api/tenants/{name}/activity", s.handleTenantActivity)
+		r.Get("/api/scripts/{name}/activity", s.handleScriptActivity)
 		r.Get("/api/image-tags", s.handleImageTags)
 		r.Get("/events", s.handleEvents)
 		r.Get("/settings/password", s.handlePasswordPage)
@@ -365,16 +368,28 @@ func (s *server) handleTenantAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
+	activity := activityKey("tenant", tenant)
+	s.recordActivity(activity, fmt.Sprintf("--- %s %s @ %s ---", verb, tenant, time.Now().UTC().Format(time.RFC3339)))
 	failed := false
 	var body strings.Builder
 	for _, app := range apps {
 		out, err := s.dokku.Action(ctx, app.Name, verb)
 		if err != nil {
 			failed = true
+			s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, app.Name))
+			s.recordActivityBlock(activity, out)
+			s.recordActivity(activity, err.Error())
 			fmt.Fprintf(&body, "FAILED %s %s\n%s\n%v\n", verb, app.Name, out, err)
 			continue
 		}
+		s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, app.Name))
+		s.recordActivityBlock(activity, out)
 		fmt.Fprintf(&body, "OK %s %s\n%s\n", verb, app.Name, out)
+	}
+	if failed {
+		s.recordActivity(activity, "--- action failed ---")
+	} else {
+		s.recordActivity(activity, "--- action complete ---")
 	}
 	s.snapshots.RefreshSoon()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -415,8 +430,17 @@ func (s *server) handleTenantDelete(w http.ResponseWriter, r *http.Request) {
 
 	// remove-tenant.sh <name> --force  (full cleanup is the default since #115)
 	argv := []string{tenant, "--force"}
-	if err := s.runner.Run(ctx, w, "remove-tenant.sh", argv); err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+	activity := activityKey("tenant", tenant)
+	s.recordActivity(activity, fmt.Sprintf("--- delete %s @ %s ---", tenant, time.Now().UTC().Format(time.RFC3339)))
+	runErr := s.runner.RunWithCallback(ctx, w, "remove-tenant.sh", argv, func(line string) {
+		s.recordActivity(activity, line)
+	})
+	if runErr != nil {
+		s.recordActivity(activity, "ERROR: "+runErr.Error())
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", runErr.Error())
+		s.recordActivity(activity, "--- delete failed ---")
+	} else {
+		s.recordActivity(activity, "--- delete complete ---")
 	}
 	s.snapshots.RefreshSoon()
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
@@ -434,7 +458,22 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
+	activity := activityKey("app", name)
+	s.recordActivity(activity, fmt.Sprintf("--- %s %s @ %s ---", verb, name, time.Now().UTC().Format(time.RFC3339)))
 	out, err := s.dokku.Action(ctx, name, verb)
+	if err != nil {
+		s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, name))
+		s.recordActivityBlock(activity, out)
+		s.recordActivity(activity, err.Error())
+	} else {
+		s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, name))
+		s.recordActivityBlock(activity, out)
+	}
+	if err != nil {
+		s.recordActivity(activity, "--- action failed ---")
+	} else {
+		s.recordActivity(activity, "--- action complete ---")
+	}
 	s.snapshots.RefreshSoon()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err != nil {
@@ -464,7 +503,7 @@ func (s *server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.dokku.StreamLogs(r.Context(), name, w, func(line string) {
-		s.logs.Append(name, line)
+		s.recordLog(name, line)
 	})
 }
 
@@ -909,8 +948,19 @@ func (s *server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 	defer cancel()
-	if err := s.runner.Run(ctx, w, sc.Name, argv); err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+	activityKeys := scriptActivityKeys(sc, r.PostForm)
+	command := "$ bash scripts/deployctl.sh " + sc.ControlCommand() + " " + strings.Join(displayArgv(sc, argv), " ")
+	s.recordActivities(activityKeys, fmt.Sprintf("--- run %s @ %s ---", sc.Slug(), time.Now().UTC().Format(time.RFC3339)))
+	s.recordActivities(activityKeys, command)
+	runErr := s.runner.RunWithCallback(ctx, w, sc.Name, argv, func(line string) {
+		s.recordActivities(activityKeys, line)
+	})
+	if runErr != nil {
+		s.recordActivities(activityKeys, "ERROR: "+runErr.Error())
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", runErr.Error())
+		s.recordActivities(activityKeys, "--- run failed ---")
+	} else {
+		s.recordActivities(activityKeys, "--- run complete ---")
 	}
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
 	if f, ok := w.(http.Flusher); ok {
@@ -1106,6 +1156,11 @@ func (s *server) handleTenantAutoRedeploy(w http.ResponseWriter, r *http.Request
 		http.Error(w, "failed to save setting: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	s.recordActivity(activityKey("tenant", name), fmt.Sprintf("Auto-redeploy %s @ %s", state, time.Now().UTC().Format(time.RFC3339)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1171,6 +1226,7 @@ func (s *server) handleTenantUpdateCredentials(w http.ResponseWriter, r *http.Re
 	}
 	username, _ := s.dokku.ConfigGet(ctx, backendApp, userKey)
 	if err := s.dokku.ConfigSet(ctx, backendApp, map[string]string{envKey: newPassword}); err != nil {
+		s.recordActivity(activityKey("tenant", name), fmt.Sprintf("Failed to update %s password in Dokku config: %v", role, err))
 		http.Error(w, "failed to update Dokku config: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1196,6 +1252,7 @@ func (s *server) handleTenantUpdateCredentials(w http.ResponseWriter, r *http.Re
 	if err := updateUserPasswordMySQL(ctx, dsn, username, newPassword); err != nil {
 		// Log but don't fail — Dokku config was already updated
 		_ = backendURL
+		s.recordActivity(activityKey("tenant", name), fmt.Sprintf("Dokku config updated; MySQL %s password update failed: %v", role, err))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1205,6 +1262,7 @@ func (s *server) handleTenantUpdateCredentials(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	s.recordActivity(activityKey("tenant", name), fmt.Sprintf("Password changed for %s (%s)", role, username))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok":      true,

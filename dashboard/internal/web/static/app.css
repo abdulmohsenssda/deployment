@@ -157,6 +157,8 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .page-subtitle code { color: var(--text-dim); font-size: 11px; }
 .page-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+.page-hero { padding: 16px; background: linear-gradient(135deg, rgba(31,111,235,.12), rgba(22,27,34,.85)); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.eyebrow { display: block; margin-bottom: 4px; color: var(--accent-h); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 
 /* ── Breadcrumb ──────────────────────────────────────────── */
 .breadcrumb { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
@@ -404,6 +406,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .form-input:focus, .form-textarea:focus { border-color: var(--accent); }
 .form-textarea { min-height: 72px; resize: vertical; font-family: var(--mono); }
+.credentials-grid { padding: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 
 .action-row  { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .quick-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
@@ -456,6 +459,7 @@ input, select, textarea { font: inherit; color: inherit; }
   white-space: pre-wrap;
   word-break: break-all;
 }
+.terminal-compact { height: 180px; }
 .log-link { color: #58a6ff; text-decoration: underline; }
 
 /* ── Commands grid ───────────────────────────────────────── */
@@ -486,6 +490,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .alert { padding: 10px 14px; border-radius: var(--radius-lg); font-size: 13px; margin-bottom: 16px; }
 .alert-warn { background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); }
 .alert-warn code { color: var(--text-muted); }
+.alert-success { background: var(--green-bg); border: 1px solid var(--green-bd); color: var(--green); }
+.alert-danger { background: var(--red-bg); border: 1px solid var(--red-bd); color: var(--red); }
 
 /* ── Toast ───────────────────────────────────────────────── */
 .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
@@ -501,7 +507,8 @@ input, select, textarea { font: inherit; color: inherit; }
 #palette-input { width:100%;background:transparent;border:none;border-bottom:1px solid var(--border);padding:14px 18px;font-size:15px;color:var(--text);outline:none; }
 #palette-list { max-height:320px;overflow-y:auto;list-style:none;margin:0;padding:4px; }
 #palette-list li { padding:9px 12px;border-radius:var(--radius);cursor:pointer;font-size:13px;color:var(--text-muted); }
-#palette-list li.bg-zinc-800\/60, #palette-list li:hover { background:rgba(255,255,255,.06);color:var(--text); }
+#palette-list li.active, #palette-list li:hover { background:rgba(255,255,255,.06);color:var(--text); }
+.palette-help { display:flex;justify-content:space-between;gap:12px;padding:8px 14px;color:var(--text-dim);font-size:10px; }
 
 /* ── Releases ────────────────────────────────────────────── */
 .release-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px; }
@@ -526,6 +533,7 @@ input, select, textarea { font: inherit; color: inherit; }
 /* ── Password page ───────────────────────────────────────── */
 .form-page { max-width:420px; }
 .form-page .panel { padding:20px; }
+.form-page .page-header { margin-bottom: 16px; }
 
 /* ── Login page ──────────────────────────────────────────── */
 .login-wrap { min-height:100vh;display:flex;align-items:center;justify-content:center; }
@@ -543,6 +551,50 @@ input, select, textarea { font: inherit; color: inherit; }
   .main-content { padding: 16px; }
   .topnav-links { display: none; }
   .col-version, .col-apps { display: none; }
+  .topnav-inner { padding: 0 16px; }
+  .topnav-brand { margin-right: 8px; }
+  .brand-name { max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+  .page-header-right { width: 100%; }
+  .page-header-right > .form-select,
+  .page-header-right > .search-input { flex: 1 1 120px; min-width: 0; width: auto !important; }
+  .page-header-right > .btn { flex: 1 1 auto; }
+  .page-hero { padding: 14px; }
+  .fleet-table { table-layout: fixed; }
+  .fleet-table .col-health,
+  .fleet-table .col-state,
+  .fleet-table .col-version,
+  .fleet-table .col-apps { display: none; }
+  .fleet-table .col-name { min-width: 0; }
+  .fleet-table .col-actions { width: 190px; }
+  .fleet-table .row-actions { gap: 3px; }
+  .fleet-table .btn-action { padding: 0 5px; font-size: 10px; }
+  .panels-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .panels-row .panel { width: 100%; }
+  .sync-form { align-items: stretch; }
+  .sync-form > div { min-width: 0 !important; width: 100%; }
+  .sync-form .btn { width: 100%; }
+  .credentials-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .credentials-grid input { min-width: 0 !important; }
+  .backup-toolbar { align-items: stretch; }
+  .backup-toolbar .panel-toolbar-right { width: 100%; }
+  .backup-toolbar .panel-toolbar-right .search-input { flex: 1; min-width: 0; width: auto !important; }
+  .backup-toolbar .panel-toolbar-right .btn { flex: 0 0 auto; }
+  #backup-table { table-layout: fixed; width: 100%; min-width: 0; }
+  #backup-table th, #backup-table td { padding: 8px 6px; }
+  #backup-table th:nth-child(4), #backup-table td:nth-child(4),
+  #backup-table th:nth-child(6), #backup-table td:nth-child(6),
+  #backup-table th:nth-child(7), #backup-table td:nth-child(7) { display: none; }
+  #backup-table th { white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+  #backup-table th:nth-child(1) { width: 27% !important; }
+  #backup-table th:nth-child(2) { width: 22% !important; }
+  #backup-table th:nth-child(3) { width: 15% !important; }
+  #backup-table th:nth-child(5) { width: 16% !important; }
+  #backup-table th:nth-child(8) { width: 20% !important; }
+  #backup-table .row-actions { gap: 2px; flex-wrap: wrap; }
+  #backup-table .btn-action { padding: 0 4px; font-size: 10px; }
+  .release-grid { grid-template-columns: minmax(0, 1fr); }
+  .palette-box { margin: 0 12px; }
+  .palette-help { flex-direction: column; gap: 2px; }
 }
 
 /* ── Image tag live-search dropdown ──────────────────────── */
@@ -604,6 +656,7 @@ input, select, textarea { font: inherit; color: inherit; }
   text-align: center;
   color: var(--text-dim);
   font-size: 13px;
+  white-space: normal;
 }
 
 /* ── Restore modal ────────────────────────────────────────── */

@@ -49,7 +49,7 @@
     }
     palIdx = 0;
     palList.innerHTML = items.slice(0, 50).map((it, i) =>
-      `<li data-href="${it.href}" class="${i === 0 ? 'bg-zinc-800/60' : ''}">${it.label}</li>`
+      `<li data-href="${it.href}" class="${i === 0 ? 'active' : ''}">${it.label}</li>`
     ).join('') || '<li style="color:var(--text-dim);padding:10px 12px">No matches</li>';
     palList.querySelectorAll('li[data-href]').forEach((li, i) => {
       li.addEventListener('mouseenter', () => { palIdx = i; highlightPalette(); });
@@ -58,7 +58,7 @@
   }
   function highlightPalette() {
     palList.querySelectorAll('li').forEach((li, i) =>
-      li.classList.toggle('bg-zinc-800/60', i === palIdx));
+      li.classList.toggle('active', i === palIdx));
   }
 
   if (palInput) {

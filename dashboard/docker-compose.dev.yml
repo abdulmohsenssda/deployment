@@ -23,7 +23,16 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-$$2a$$10$$wSLpsqKwddxuOPon/l4aGuSQUAg6.cOqx2vnGuWWsayjtvyW5tZse}
       SESSION_KEY: ${SESSION_KEY:-}
       LOG_BUFFER_LINES: 2000
+      LOG_DIR: /opt/dashboard-logs
       COOKIE_SECURE: "false"
+      DOCKERHUB_USERNAME: ${DOCKERHUB_USERNAME:-}
+      BACKEND_IMAGE: ${BACKEND_IMAGE:-}
+      FRONTEND_IMAGE: ${FRONTEND_IMAGE:-}
+      APP_IMAGE_VERSION_DEFAULT: ${APP_IMAGE_VERSION_DEFAULT:-}
+      MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_ROOT_USER: ${MYSQL_ROOT_USER:-root}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
       # Path to /opt/deployment on the *host* docker daemon. The dashboard spawns
       # a sidecar container with this directory mounted to execute scripts.
       # On Windows Docker Desktop, the host path is the absolute Windows path.
@@ -44,3 +53,4 @@ services:
       - ${BACKUP_DIR:-/opt/tenant-backups}:${BACKUP_DIR:-/opt/tenant-backups}
       - ${STORAGE_ROOT:-/opt/tenant-data}:${STORAGE_ROOT:-/opt/tenant-data}
       - ${TENANT_STATE_DIR:-/opt/tenant-state}:${TENANT_STATE_DIR:-/opt/tenant-state}
+      - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs

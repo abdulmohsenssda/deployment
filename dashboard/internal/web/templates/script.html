@@ -192,6 +192,22 @@
     out.insertAdjacentHTML('beforeend', linkifyLine(line) + '<br>');
   }
 
+  let activityDirty = false;
+  fetch('/api/scripts/{{.Slug}}/activity')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      const entries = data.entries || [];
+      if (activityDirty) return;
+      out.textContent = '';
+      entries.forEach(entry => {
+        const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+        appendLine(at + (entry.line || ''));
+      });
+      out.scrollTop = out.scrollHeight;
+    })
+    .catch(() => {});
+
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     if (danger && !confirm('This script may modify or delete data. Continue?')) return;
@@ -199,6 +215,7 @@
     if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
     persistOnSubmit();
     const fd = new FormData(form);
+    activityDirty = true;
     appendLine('');
     appendLine('--- run ' + new Date().toISOString() + ' ---');
     const res = await fetch('/scripts/{{.Slug}}/run', { method: 'POST', body: new URLSearchParams(fd) });

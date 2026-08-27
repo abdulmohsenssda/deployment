@@ -102,7 +102,7 @@
     <span class="panel-title" style="border:none;padding:0;margin:0">Access Credentials</span>
     <div style="font-size:11px;color:var(--text-muted)">Admin and manager user accounts for this tenant</div>
   </div>
-  <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div class="credentials-grid">
     <!-- Admin -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Admin account</div>
@@ -132,15 +132,15 @@
   </div>
 </div>
 
-<!-- Action output terminal -->
-<div class="panel">
-  <div class="panel-title">Action output</div>
-  <div id="tenant-out" class="terminal"></div>
+<!-- Durable action history -->
+<div class="panel activity-panel">
+  <div class="panel-title">Recent activity</div>
+  <div id="tenant-out" class="terminal terminal-compact" aria-live="polite"></div>
 </div>
 
 <!-- Backup panel -->
 <div class="panel">
-  <div class="panel-toolbar">
+  <div class="panel-toolbar backup-toolbar">
     <span class="panel-title" style="border:none;padding:0;margin:0">Backups</span>
     <div style="font-size:11px;color:var(--text-muted)">
       Auto backups retained {{.BackupRetentionDays}} days &nbsp;·&nbsp; User backups kept until deleted (max {{.MaxUserBackups}})
@@ -196,11 +196,31 @@
   const backupTbody = document.getElementById('backup-tbody');
   const restoreModal = document.getElementById('restore-modal');
   let pendingRestoreID = null;
+  let activityDirty = false;
 
   // ── Output terminal helpers ────────────────────────────────
   function append(line) {
+    activityDirty = true;
     out.textContent += line + '\n';
     out.scrollTop = out.scrollHeight;
+  }
+
+  async function loadActivity() {
+    try {
+      const res = await fetch('/api/tenants/' + tenant + '/activity');
+      if (!res.ok) return;
+      const data = await res.json();
+      const entries = data.entries || [];
+      if (activityDirty) return;
+      out.textContent = entries.map((entry) => {
+        const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+        return at + (entry.line || '');
+      }).join('\n');
+      if (entries.length) out.textContent += '\n';
+      out.scrollTop = out.scrollHeight;
+    } catch (_) {
+      // Activity is supplemental; the live operation output remains usable.
+    }
   }
 
   function escapeHTML(value) {
@@ -550,6 +570,7 @@
   });
 
   // Initial load
+  loadActivity();
   loadBackups();
 })();
 </script>

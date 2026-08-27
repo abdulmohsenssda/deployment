@@ -224,8 +224,18 @@ func (s *server) handleTenantBackup(w http.ResponseWriter, r *http.Request) {
 	if label != "" {
 		argv = append(argv, "--label", label)
 	}
-	if err := s.runner.Run(ctx, w, "backup-tenant.sh", argv); err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+	activity := activityKey("tenant", tenant)
+	s.recordActivity(activity, fmt.Sprintf("--- create backup for %s @ %s ---", tenant, time.Now().UTC().Format(time.RFC3339)))
+	s.recordActivity(activity, "Starting backup for "+tenant+"...")
+	runErr := s.runner.RunWithCallback(ctx, w, "backup-tenant.sh", argv, func(line string) {
+		s.recordActivity(activity, line)
+	})
+	if runErr != nil {
+		s.recordActivity(activity, "ERROR: "+runErr.Error())
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", runErr.Error())
+		s.recordActivity(activity, "--- backup failed ---")
+	} else {
+		s.recordActivity(activity, "--- backup complete ---")
 	}
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
 	if f, ok := w.(http.Flusher); ok {
@@ -340,10 +350,16 @@ func (s *server) handleTenantBackupDelete(w http.ResponseWriter, r *http.Request
 
 	// manage-backups.sh delete <id> --force (dashboard has operator authority)
 	argv := []string{"delete", backupID, "--force"}
-	if _, err := s.runScriptCapture(ctx, "manage-backups.sh", argv); err != nil {
+	activity := activityKey("tenant", tenant)
+	s.recordActivity(activity, fmt.Sprintf("--- delete backup %s @ %s ---", backupID, time.Now().UTC().Format(time.RFC3339)))
+	out, err := s.runScriptCapture(ctx, "manage-backups.sh", argv)
+	s.recordActivityBlock(activity, string(out))
+	if err != nil {
+		s.recordActivity(activity, "ERROR: "+err.Error())
 		http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.recordActivity(activity, "--- backup delete complete ---")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -371,8 +387,19 @@ func (s *server) handleTenantRestore(w http.ResponseWriter, r *http.Request) {
 
 	// restore-tenant.sh <tenant> --from <id> (takes safety backup by default)
 	argv := []string{tenant, "--from", backupID}
-	if err := s.runner.Run(ctx, w, "restore-tenant.sh", argv); err != nil {
-		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+	activity := activityKey("tenant", tenant)
+	s.recordActivity(activity, fmt.Sprintf("--- restore %s from %s @ %s ---", tenant, backupID, time.Now().UTC().Format(time.RFC3339)))
+	s.recordActivity(activity, "Restoring "+tenant+" from backup "+backupID+"...")
+	s.recordActivity(activity, "A safety backup of the current state will be taken first.")
+	runErr := s.runner.RunWithCallback(ctx, w, "restore-tenant.sh", argv, func(line string) {
+		s.recordActivity(activity, line)
+	})
+	if runErr != nil {
+		s.recordActivity(activity, "ERROR: "+runErr.Error())
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", runErr.Error())
+		s.recordActivity(activity, "--- restore failed ---")
+	} else {
+		s.recordActivity(activity, "--- restore complete ---")
 	}
 	fmt.Fprint(w, "event: done\ndata: end\n\n")
 	if f, ok := w.(http.Flusher); ok {

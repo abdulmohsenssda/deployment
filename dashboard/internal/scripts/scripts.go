@@ -498,6 +498,7 @@ type Runner struct {
 	scriptsHostPath string // host path to /opt/deployment (mounted into runner)
 	configFile      string // optional --config path inside runner
 	backupDir       string // host path to backup dir (mounted rw so scripts can write)
+	storageRoot     string // host path to tenant persistent files (mounted rw for backups)
 }
 
 // NewRunner builds a runner. scriptsHostPath is the path on the docker
@@ -518,6 +519,13 @@ func NewRunner(dockerBin, runnerImage, scriptsHostPath, configFile string) *Runn
 // The directory will be mounted into runner containers so scripts can write backup files.
 func (r *Runner) SetBackupDir(dir string) {
 	r.backupDir = dir
+}
+
+// SetStorageRoot configures the host path for tenant persistent files.
+// The directory is mounted into runner containers so backup scripts include
+// the same files visible to the dashboard deployment.
+func (r *Runner) SetStorageRoot(dir string) {
+	r.storageRoot = dir
 }
 
 // safeArg only allows characters that cannot escape an argv slot. We split on
@@ -541,6 +549,13 @@ func validateArgs(argv []string) error {
 // Run executes a script with already-built argv (extra flags after the script
 // name). Output is streamed to w line-by-line as SSE `data:` frames.
 func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv []string) error {
+	return r.RunWithCallback(ctx, w, scriptName, argv, nil)
+}
+
+// RunWithCallback executes a script like Run and invokes onLine for every
+// normalized output line before it is streamed to the caller. The callback is
+// useful for durable operation history and must not write to w.
+func (r *Runner) RunWithCallback(ctx context.Context, w io.Writer, scriptName string, argv []string, onLine func(string)) error {
 	sc := Find(scriptName)
 	if sc == nil {
 		return fmt.Errorf("script %q is not in the catalog", scriptName)
@@ -568,21 +583,7 @@ func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv [
 		dockerSocket = `//./pipe/docker_engine://./pipe/docker_engine`
 	}
 
-	full := []string{
-		"run", "--rm", "-i",
-		"-e", "MYSQL_CLIENT_MODE=docker",
-		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
-		"-v", dockerSocket,
-		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
-		"--network", "host",
-	}
-	// Mount the backup dir so backup scripts can write to the host filesystem
-	if r.backupDir != "" {
-		full = append(full, "-v", r.backupDir+":"+r.backupDir)
-		full = append(full, "-e", "BACKUP_DIR="+r.backupDir)
-	}
+	full := r.dockerArgs(dockerSocket)
 	full = append(full,
 		img,
 		// CRLF tolerance: scripts authored on Windows have \r line endings
@@ -616,6 +617,9 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := stripAnsi(scanner.Text())
+		if onLine != nil {
+			onLine(line)
+		}
 		if _, werr := fmt.Fprintf(w, "data: %s\n\n", line); werr != nil {
 			_ = cmd.Process.Kill()
 			break
@@ -625,6 +629,29 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 		}
 	}
 	return cmd.Wait()
+}
+
+func (r *Runner) dockerArgs(dockerSocket string) []string {
+	full := []string{
+		"run", "--rm", "-i",
+		"-e", "MYSQL_CLIENT_MODE=docker",
+		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
+		"-v", dockerSocket,
+		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
+		"--network", "host",
+	}
+	// Mount the backup dir so backup scripts can write to the host filesystem
+	if r.backupDir != "" {
+		full = append(full, "-v", r.backupDir+":"+r.backupDir)
+		full = append(full, "-e", "BACKUP_DIR="+r.backupDir)
+	}
+	if r.storageRoot != "" {
+		full = append(full, "-v", r.storageRoot+":"+r.storageRoot)
+		full = append(full, "-e", "STORAGE_ROOT="+r.storageRoot)
+	}
+	return full
 }
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)

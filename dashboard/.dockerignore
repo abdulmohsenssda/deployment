@@ -1,0 +1,5 @@
+.local-state/
+.dashboard-logs/
+e2e/
+*.exe
+*.crt
