@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/abdul-mohsen/deployment/dashboard/internal/config"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/scripts"
@@ -164,13 +163,7 @@ func TestBuildArgv_DeployAll_FrontendVersionExpandsPosImage(t *testing.T) {
 }
 
 func TestDashboardTemplatesParse(t *testing.T) {
-	funcs := template.FuncMap{
-		"join":     strings.Join,
-		"now":      func() string { return time.Now().Format("2006-01-02 15:04:05") },
-		"stateClr": stateClass,
-		"httpClr":  httpClass,
-		"json":     templateJSON,
-	}
+	funcs := templateFuncs()
 	for _, name := range []string{"index.html", "app.html", "tenant.html", "scripts.html", "script.html", "releases.html", "password.html"} {
 		if _, err := template.New("").Funcs(funcs).ParseFS(tplFS,
 			"templates/_layout.html",

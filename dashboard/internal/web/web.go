@@ -50,13 +50,7 @@ type server struct {
 
 // Router builds the HTTP handler.
 func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts.Runner) http.Handler {
-	funcs := template.FuncMap{
-		"join":     strings.Join,
-		"now":      func() string { return time.Now().Format("2006-01-02 15:04:05") },
-		"stateClr": stateClass,
-		"httpClr":  httpClass,
-		"json":     templateJSON,
-	}
+	funcs := templateFuncs()
 	pages := map[string]*template.Template{}
 	layoutPages := []string{"index.html", "app.html", "tenant.html", "scripts.html", "script.html", "releases.html", "password.html"}
 	for _, name := range layoutPages {
@@ -98,9 +92,9 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireAuth)
 		r.Get("/", s.handleIndex)
-	r.Get("/tenants/{name}", s.handleTenant)
-	r.Post("/tenants/{name}/{verb}", s.handleTenantAction)
-	r.Post("/tenants/{name}/delete", s.handleTenantDelete)
+		r.Get("/tenants/{name}", s.handleTenant)
+		r.Post("/tenants/{name}/{verb}", s.handleTenantAction)
+		r.Post("/tenants/{name}/delete", s.handleTenantDelete)
 		r.Get("/apps/{name}", s.handleApp)
 		r.Post("/apps/{name}/{verb}", s.handleAction)
 		r.Get("/apps/{name}/logs", s.handleLogStream)
@@ -129,6 +123,17 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 	})
 
 	return r
+}
+
+func templateFuncs() template.FuncMap {
+	return template.FuncMap{
+		"join":         strings.Join,
+		"now":          func() string { return time.Now().Format("2006-01-02 15:04:05") },
+		"stateClr":     stateClass,
+		"httpClr":      httpClass,
+		"json":         templateJSON,
+		"appDetailURL": appDetailURL,
+	}
 }
 
 func templateJSON(v any) template.JS {
@@ -485,13 +490,13 @@ func (s *server) handleImageTags(w http.ResponseWriter, r *http.Request) {
 
 // TagMeta holds per-tag metadata returned alongside the tag list.
 type TagMeta struct {
-	Tag           string `json:"tag"`
-	LastPushed    string `json:"last_pushed,omitempty"` // ISO8601
-	Digest        string `json:"digest,omitempty"`       // first 19 chars of "sha256:..."
-	IsBranch      bool   `json:"is_branch"`              // true when not a semver vX.Y.Z tag
-	InBoth        bool   `json:"in_both"`                // true when tag exists in both backend AND frontend repos
-	BackendOnly   bool   `json:"backend_only,omitempty"` // true when only in backend repo
-	FrontendOnly  bool   `json:"frontend_only,omitempty"` // true when only in frontend repo
+	Tag          string `json:"tag"`
+	LastPushed   string `json:"last_pushed,omitempty"`   // ISO8601
+	Digest       string `json:"digest,omitempty"`        // first 19 chars of "sha256:..."
+	IsBranch     bool   `json:"is_branch"`               // true when not a semver vX.Y.Z tag
+	InBoth       bool   `json:"in_both"`                 // true when tag exists in both backend AND frontend repos
+	BackendOnly  bool   `json:"backend_only,omitempty"`  // true when only in backend repo
+	FrontendOnly bool   `json:"frontend_only,omitempty"` // true when only in frontend repo
 }
 
 // fetchImageTagsWithMeta returns the filtered tag list + per-tag metadata including
@@ -1433,6 +1438,13 @@ var validName = func() func(string) bool {
 }()
 
 func validAppName(s string) bool { return validName(s) }
+
+func appDetailURL(name string) string {
+	if !validAppName(name) {
+		return ""
+	}
+	return "/apps/" + url.PathEscape(name)
+}
 
 func stateClass(state string) string {
 	switch state {

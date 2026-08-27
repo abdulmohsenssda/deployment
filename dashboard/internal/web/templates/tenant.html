@@ -23,6 +23,20 @@
     </div>
     <div class="rc-image" title="{{.Image}}">{{or .Image "—"}}</div>
     <div class="rc-meta">HTTP {{.HTTPCode}} · port {{or .IntPort "—"}}</div>
+    {{if appDetailURL .Name}}
+    <a href="{{appDetailURL .Name}}" class="app-detail-link">View backend app details ↗</a>
+    {{else}}
+    <div class="rc-meta rc-unavailable">App details unavailable</div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="resource-card resource-card-unavailable">
+    <div class="rc-header">
+      <span class="rc-label">Backend</span>
+      <span class="badge state-missing">Unavailable</span>
+    </div>
+    <div class="rc-value">Backend app unavailable</div>
+    <div class="rc-meta">No backend app data was found for this tenant.</div>
   </div>
   {{end}}
   {{with .Frontend}}
@@ -33,6 +47,20 @@
     </div>
     <div class="rc-image" title="{{.Image}}">{{or .Image "—"}}</div>
     <div class="rc-meta">{{join .Domains " · "}}</div>
+    {{if appDetailURL .Name}}
+    <a href="{{appDetailURL .Name}}" class="app-detail-link">View frontend app details ↗</a>
+    {{else}}
+    <div class="rc-meta rc-unavailable">App details unavailable</div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="resource-card resource-card-unavailable">
+    <div class="rc-header">
+      <span class="rc-label">Frontend</span>
+      <span class="badge state-missing">Unavailable</span>
+    </div>
+    <div class="rc-value">Frontend app unavailable</div>
+    <div class="rc-meta">No frontend app data was found for this tenant.</div>
   </div>
   {{end}}
 

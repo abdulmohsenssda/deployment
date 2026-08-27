@@ -453,6 +453,10 @@ input, select, textarea { font: inherit; color: inherit; }
 .rc-value { font-size: 16px; font-weight: 600; color: var(--text); margin-top: 4px; }
 .rc-image { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
 .rc-meta  { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.app-detail-link { display: inline-block; margin-top: 10px; color: var(--accent-h); font-size: 12px; }
+.app-detail-link:hover { text-decoration: underline; }
+.rc-unavailable { color: var(--amber); }
+.resource-card-unavailable { opacity: .8; }
 
 /* ── Panels row ──────────────────────────────────────────── */
 .panels-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
