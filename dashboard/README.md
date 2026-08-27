@@ -17,6 +17,15 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
 - Command palette (Ctrl/Cmd+K)
 - Single-admin login (bcrypt) with signed cookie session
 
+The live app log pane is bounded in the browser to the newest 2,000 lines and
+1 MiB of UTF-8 text. Older lines are evicted as new output arrives; an
+individual line larger than the byte cap is truncated to fit. Log text is
+rendered through DOM text nodes, so ANSI escape sequences and other untrusted
+characters remain inert, while HTTP(S) URLs stay clickable. The server-side
+`LOG_BUFFER_LINES` ring buffer remains the source for initial snapshots and
+downloads. Run the deterministic browser regression with
+`cd e2e && npm run test:log-retention` from the dashboard directory.
+
 ## Deployment model
 
 One container per environment (dev box, prod box). The container mounts

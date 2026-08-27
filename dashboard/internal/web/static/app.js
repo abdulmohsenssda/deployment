@@ -357,6 +357,9 @@
     const retryButton = document.getElementById('log-stream-retry');
     const url = pre.dataset.streamUrl;
     if (!url) return;
+    const renderer = typeof window.LogStream?.create === 'function'
+      ? window.LogStream.create(pre)
+      : null;
 
     const maxRetries = 5;
     const initialBackoff = 1000;
@@ -430,7 +433,9 @@
       next.onmessage = ev => {
         if (stream !== next || closed) return;
         const stuck = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-        pre.textContent += window.stripTerminalControls(ev.data) + '\n';
+        const line = window.stripTerminalControls(ev.data);
+        if (renderer) renderer.append(line);
+        else pre.textContent += line + '\n';
         if (stuck) pre.scrollTop = pre.scrollHeight;
       };
       next.onerror = () => {
