@@ -9,6 +9,9 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
 - Release notes page with broken-version status
 - Live log streaming (SSE) + ring-buffer log aggregation + downloadable dump
 - Command forms backed by `scripts/deployctl.sh` with streamed output
+- Command output and tenant activity panels show idle/running/success/failure
+  states and retain the most recent 200 browser-side activity lines across
+  refreshes (an interrupted run is shown as failed)
 - Command palette (Ctrl/Cmd+K)
 - Single-admin login (bcrypt) with signed cookie session
 

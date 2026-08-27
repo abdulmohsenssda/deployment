@@ -177,9 +177,17 @@
 </div>
 
 <!-- Action output terminal -->
-<div class="panel">
-  <div class="panel-title">Action output</div>
-  <div id="tenant-out" class="terminal"></div>
+<div id="tenant-activity-panel" class="panel activity-panel operation-panel" data-state="idle" data-operation-state="idle" aria-busy="false">
+  <div class="panel-toolbar operation-toolbar">
+    <span class="panel-title">Action output</span>
+    <span id="tenant-out-status" class="operation-status operation-status-idle" data-operation-status="idle">Idle</span>
+  </div>
+  <div id="tenant-out-status-detail" class="operation-detail" data-operation-detail role="status" aria-live="polite">
+    Ready — run a tenant action to see activity.
+  </div>
+  <div id="tenant-out" class="terminal" aria-live="polite">
+    <div id="tenant-out-empty" class="terminal-empty">No tenant activity yet. Run an action to see results.</div>
+  </div>
 </div>
 
 <!-- Backup panel -->
@@ -235,45 +243,97 @@
   'use strict';
   const tenant = '{{.Tenant}}';
   const out = document.getElementById('tenant-out');
+  const activityPanel = document.getElementById('tenant-activity-panel');
+  const activityStore = window.DashboardOperation.createStore('dashboard:tenant-activity:' + tenant);
   const form = document.getElementById('tenant-version-form');
   const backupTbody = document.getElementById('backup-tbody');
   const restoreModal = document.getElementById('restore-modal');
   let pendingRestoreID = null;
+  let activityLines = [];
+  let activityState = 'idle';
 
   // ── Output terminal helpers ────────────────────────────────
-  function append(line) {
-    out.textContent += line + '\n';
+  function emptyMarkup() {
+    return '<div id="tenant-out-empty" class="terminal-empty">No tenant activity yet. Run an action to see results.</div>';
+  }
+
+  function persistActivity() {
+    activityStore.save(activityLines, activityState);
+  }
+
+  function setActivityState(state, detail) {
+    activityState = window.DashboardOperation.setState(activityPanel, state, detail);
+    persistActivity();
+  }
+
+  function append(line, persist = true) {
+    const value = String(line);
+    activityLines.push(value);
+    activityLines = activityLines.slice(-window.DashboardOperation.maxEntries);
+    out.querySelector('.terminal-empty')?.remove();
+    out.append(document.createTextNode(value + '\n'));
     out.scrollTop = out.scrollHeight;
+    if (persist) persistActivity();
+  }
+
+  function restoreActivity() {
+    const saved = activityStore.load();
+    activityLines = saved.entries.slice(-window.DashboardOperation.maxEntries);
+    out.innerHTML = '';
+    activityLines.forEach(line => append(line, false));
+    if (activityLines.length === 0) out.innerHTML = emptyMarkup();
+    const recovered = window.DashboardOperation.recoveredState(activityState = saved.state, activityLines.length > 0);
+    const detail = saved.state === 'running'
+      ? 'Previous operation did not finish; review the saved activity.'
+      : undefined;
+    setActivityState(recovered, detail);
   }
 
   async function streamSSE(url, method, body) {
+    setActivityState('running', 'Running — streaming operation output…');
     append('--- ' + method + ' ' + url + ' @ ' + new Date().toISOString() + ' ---');
     const opts = { method };
     if (body) {
       opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
       opts.body = typeof body === 'string' ? body : new URLSearchParams(body).toString();
     }
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      append('✖ ' + res.status + ' ' + await res.text());
-      return;
-    }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const ln of block.split('\n')) {
-          if (ln.startsWith('data: ')) append(ln.slice(6));
-          if (ln.startsWith('event: error')) append('✖ FAILED');
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        append('✖ ' + res.status + ' ' + await res.text());
+        setActivityState('failure', 'Failed — the operation returned HTTP ' + res.status + '.');
+        return false;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', streamFailed = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('data: ')) append(ln.slice(6));
+            if (ln.startsWith('event: error')) {
+              streamFailed = true;
+              append('✖ FAILED');
+            }
+          }
         }
       }
+      if (streamFailed) {
+        setActivityState('failure', 'Failed — the operation reported an error.');
+        return false;
+      }
+      setActivityState('success', 'Success — operation completed.');
+      return true;
+    } catch (e) {
+      append('✖ Operation failed: ' + (e && e.message ? e.message : e));
+      setActivityState('failure', 'Failed — the operation stream could not be completed.');
+      return false;
     }
   }
 
@@ -289,9 +349,17 @@
       const verb = btn.dataset.tenantAct;
       const msg = btn.dataset.confirm;
       if (msg && !confirm(msg)) return;
+      setActivityState('running', 'Running — applying ' + verb + ' to ' + tenant + '…');
       append('--- ' + verb + ' ' + tenant + ' ---');
-      const res = await fetch('/tenants/' + tenant + '/' + verb, { method: 'POST' });
-      append(await res.text());
+      try {
+        const res = await fetch('/tenants/' + tenant + '/' + verb, { method: 'POST' });
+        append(await res.text());
+        setActivityState(res.ok ? 'success' : 'failure',
+          res.ok ? 'Success — ' + verb + ' completed.' : 'Failed — ' + verb + ' returned HTTP ' + res.status + '.');
+      } catch (e) {
+        append('✖ ' + verb + ' failed: ' + (e && e.message ? e.message : e));
+        setActivityState('failure', 'Failed — ' + verb + ' could not be completed.');
+      }
     });
   });
 
@@ -314,15 +382,13 @@
         return;
       }
       deleteBtn.disabled = true;
-      append('--- deleting ' + tenant + ' ---');
       const body = new URLSearchParams({ confirm: tenant });
-      try {
-        await streamSSE('/tenants/' + tenant + '/delete', 'POST', body);
+      const completed = await streamSSE('/tenants/' + tenant + '/delete', 'POST', body);
+      if (completed) {
         append('--- tenant deleted; returning to fleet in 3s ---');
         setTimeout(() => { window.location.href = '/'; }, 3000);
-      } catch (e) {
+      } else {
         deleteBtn.disabled = false;
-        append('✖ delete failed: ' + (e && e.message ? e.message : e));
       }
     });
   }
@@ -333,17 +399,26 @@
   if (toggle) {
     toggle.addEventListener('change', async () => {
       const enabled = toggle.checked;
-      const res = await fetch('/tenants/' + tenant + '/auto-redeploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'enabled=' + (enabled ? '1' : '0'),
-      });
-      if (!res.ok) {
-        toggle.checked = !enabled; // revert
-        append('✖ Failed to save auto-redeploy setting: ' + res.status);
-      } else {
+      setActivityState('running', 'Running — saving auto-redeploy setting…');
+      try {
+        const res = await fetch('/tenants/' + tenant + '/auto-redeploy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'enabled=' + (enabled ? '1' : '0'),
+        });
+        if (!res.ok) {
+          toggle.checked = !enabled; // revert
+          append('✖ Failed to save auto-redeploy setting: ' + res.status);
+          setActivityState('failure', 'Failed — auto-redeploy setting was not saved.');
+          return;
+        }
         if (statusLabel) statusLabel.textContent = enabled ? 'Enabled' : 'Disabled';
         append('Auto-redeploy ' + (enabled ? 'enabled' : 'disabled') + ' for ' + tenant);
+        setActivityState('success', 'Success — auto-redeploy setting saved.');
+      } catch (e) {
+        toggle.checked = !enabled; // revert
+        append('✖ Failed to save auto-redeploy setting: ' + (e && e.message ? e.message : e));
+        setActivityState('failure', 'Failed — auto-redeploy setting was not saved.');
       }
     });
   }
@@ -418,6 +493,7 @@
       }
       btn.disabled = true;
       if (msg) msg.textContent = '';
+      setActivityState('running', 'Running — updating ' + role + ' credentials…');
       try {
         const res = await fetch('/tenants/' + tenant + '/credentials', {
           method: 'POST',
@@ -429,11 +505,14 @@
           if (msg) { msg.textContent = '✓ ' + data.message; msg.style.color = 'var(--green)'; }
           passInput.value = '';
           append('Password changed for ' + role + ' on ' + tenant);
+          setActivityState('success', 'Success — ' + role + ' password updated.');
         } else {
           if (msg) { msg.textContent = '⚠ ' + (data.warning || 'Failed'); msg.style.color = 'var(--amber)'; }
+          setActivityState('failure', 'Failed — ' + role + ' password was not fully updated.');
         }
       } catch (e) {
         if (msg) { msg.textContent = '✖ Error: ' + e.message; msg.style.color = 'var(--red)'; }
+        setActivityState('failure', 'Failed — ' + role + ' password update could not be completed.');
       } finally {
         btn.disabled = false;
       }
@@ -498,12 +577,21 @@
         btn.addEventListener('click', async () => {
           if (!confirm('Permanently delete backup ' + btn.dataset.del + '?\nThis cannot be undone.')) return;
           btn.disabled = true;
-          const r = await fetch('/tenants/' + tenant + '/backups/' + btn.dataset.del + '/delete', { method: 'POST' });
-          if (r.ok) {
-            append('Backup ' + btn.dataset.del + ' deleted.');
-            loadBackups();
-          } else {
-            append('✖ Delete failed: ' + await r.text());
+          setActivityState('running', 'Running — deleting backup…');
+          try {
+            const r = await fetch('/tenants/' + tenant + '/backups/' + btn.dataset.del + '/delete', { method: 'POST' });
+            if (r.ok) {
+              append('Backup ' + btn.dataset.del + ' deleted.');
+              setActivityState('success', 'Success — backup deleted.');
+              loadBackups();
+            } else {
+              append('✖ Delete failed: ' + await r.text());
+              setActivityState('failure', 'Failed — backup could not be deleted.');
+              btn.disabled = false;
+            }
+          } catch (e) {
+            append('✖ Delete failed: ' + (e && e.message ? e.message : e));
+            setActivityState('failure', 'Failed — backup could not be deleted.');
             btn.disabled = false;
           }
         });
@@ -554,6 +642,7 @@
   });
 
   // Initial load
+  restoreActivity();
   loadBackups();
 })();
 </script>

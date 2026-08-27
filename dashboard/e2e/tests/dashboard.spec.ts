@@ -346,6 +346,100 @@ test('tenant page restore modal appears on restore click', async ({ page }) => {
   await expect(modal).toBeHidden();
 });
 
+test('command output transitions idle to running to success and survives reload', async ({ page }) => {
+  await login(page);
+  await page.route('**/scripts/status/run', async route => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: status complete\n\nevent: done\ndata: end\n\n',
+    });
+  });
+  await page.goto(BASE + '/scripts/status');
+  await page.evaluate(() => localStorage.removeItem('dashboard:script-output:status'));
+  await page.reload();
+
+  const panel = page.locator('#command-output');
+  await expect(panel).toHaveAttribute('data-state', 'idle');
+  await expect(page.locator('#out-empty')).toContainText('No command output yet');
+
+  await page.locator('#run-form button[type="submit"]').click();
+  await expect(panel).toHaveAttribute('data-state', 'running');
+  await expect(panel).toHaveAttribute('aria-busy', 'true');
+  await expect(panel).toHaveAttribute('data-state', 'success', { timeout: 5000 });
+  await expect(page.locator('#out')).toContainText('status complete');
+
+  await page.reload();
+  await expect(panel).toHaveAttribute('data-state', 'success');
+  await expect(page.locator('#out')).toContainText('status complete');
+});
+
+test('command output transitions to failure on an HTTP error', async ({ page }) => {
+  await login(page);
+  await page.route('**/scripts/status/run', route => route.fulfill({
+    status: 502,
+    contentType: 'text/plain',
+    body: 'runner unavailable',
+  }));
+  await page.goto(BASE + '/scripts/status');
+  await page.evaluate(() => localStorage.removeItem('dashboard:script-output:status'));
+  await page.reload();
+
+  const panel = page.locator('#command-output');
+  await page.locator('#run-form button[type="submit"]').click();
+  await expect(panel).toHaveAttribute('data-state', 'failure', { timeout: 5000 });
+  await expect(page.locator('#out-status')).toHaveText('Failure');
+  await expect(page.locator('#out')).toContainText('runner unavailable');
+});
+
+test('tenant activity transitions idle to running to success and survives reload', async ({ page }) => {
+  await login(page);
+  await page.route('**/tenants/dev-git/start', async route => {
+    await new Promise(resolve => setTimeout(resolve, 400));
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/plain',
+      body: 'OK start dev-git-backend\n',
+    });
+  });
+  await page.goto(BASE + '/tenants/dev-git');
+  await page.evaluate(() => localStorage.removeItem('dashboard:tenant-activity:dev-git'));
+  await page.reload();
+
+  const panel = page.locator('#tenant-activity-panel');
+  await expect(panel).toHaveAttribute('data-state', 'idle');
+  await expect(page.locator('#tenant-out-empty')).toContainText('No tenant activity yet');
+
+  await page.locator('.tenant-act[data-tenant-act="start"]').click();
+  await expect(panel).toHaveAttribute('data-state', 'running');
+  await expect(panel).toHaveAttribute('aria-busy', 'true');
+  await expect(panel).toHaveAttribute('data-state', 'success', { timeout: 5000 });
+  await expect(page.locator('#tenant-out')).toContainText('OK start dev-git-backend');
+
+  await page.reload();
+  await expect(panel).toHaveAttribute('data-state', 'success');
+  await expect(page.locator('#tenant-out')).toContainText('OK start dev-git-backend');
+});
+
+test('tenant activity transitions to failure on an HTTP error', async ({ page }) => {
+  await login(page);
+  await page.route('**/tenants/dev-git/start', route => route.fulfill({
+    status: 502,
+    contentType: 'text/plain',
+    body: 'tenant action unavailable',
+  }));
+  await page.goto(BASE + '/tenants/dev-git');
+  await page.evaluate(() => localStorage.removeItem('dashboard:tenant-activity:dev-git'));
+  await page.reload();
+
+  const panel = page.locator('#tenant-activity-panel');
+  await page.locator('.tenant-act[data-tenant-act="start"]').click();
+  await expect(panel).toHaveAttribute('data-state', 'failure', { timeout: 5000 });
+  await expect(page.locator('#tenant-out-status')).toHaveText('Failure');
+  await expect(page.locator('#tenant-out')).toContainText('tenant action unavailable');
+});
+
 test('tenant accounting export link is present', async ({ page }) => {
   await login(page);
   await page.goto(BASE + '/tenants/dev-git');

@@ -88,20 +88,75 @@
   </form>
 </div>
 
-<div class="panel">
-  <div class="panel-title">Output</div>
-  <div id="out" class="terminal"></div>
+<div id="command-output" class="panel operation-panel" data-state="idle" data-operation-state="idle" aria-busy="false">
+  <div class="panel-toolbar operation-toolbar">
+    <span class="panel-title">Output</span>
+    <span id="out-status" class="operation-status operation-status-idle" data-operation-status="idle">Idle</span>
+  </div>
+  <div id="out-status-detail" class="operation-detail" data-operation-detail role="status" aria-live="polite">
+    Ready — run this command to see output.
+  </div>
+  <div id="out" class="terminal" aria-live="polite">
+    <div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>
+  </div>
 </div>
 
 <script>
 (function () {
   const form = document.getElementById('run-form');
   const out = document.getElementById('out');
-  document.getElementById('clear-out').onclick = () => out.innerHTML = '';
   const danger = {{.Danger}};
   const slug = '{{.Slug}}';
   const STORE_KEY = 'script-form:' + slug;
+  const outputPanel = document.getElementById('command-output');
+  const outputStore = window.DashboardOperation.createStore('dashboard:script-output:' + slug);
   const releases = {{json $.Releases}};
+  let outputLines = [];
+  let outputState = 'idle';
+
+  function emptyMarkup() {
+    return '<div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>';
+  }
+
+  function persistOutput() {
+    outputStore.save(outputLines, outputState);
+  }
+
+  function setOutputState(state, detail) {
+    outputState = window.DashboardOperation.setState(outputPanel, state, detail);
+    persistOutput();
+  }
+
+  function appendLine(line, persist = true) {
+    const value = String(line);
+    outputLines.push(value);
+    outputLines = outputLines.slice(-window.DashboardOperation.maxEntries);
+    out.querySelector('.terminal-empty')?.remove();
+    out.insertAdjacentHTML('beforeend', linkifyLine(value) + '<br>');
+    if (persist) persistOutput();
+  }
+
+  function clearOutput() {
+    outputLines = [];
+    out.innerHTML = emptyMarkup();
+    outputStore.clear();
+    setOutputState('idle', 'Ready — run this command to see output.');
+  }
+
+  function restoreOutput() {
+    const saved = outputStore.load();
+    outputLines = saved.entries.slice(-window.DashboardOperation.maxEntries);
+    out.innerHTML = '';
+    outputLines.forEach(line => appendLine(line, false));
+    if (outputLines.length === 0) out.innerHTML = emptyMarkup();
+    const recovered = window.DashboardOperation.recoveredState(outputState = saved.state, outputLines.length > 0);
+    const detail = saved.state === 'running'
+      ? 'Previous run did not finish; review the saved output.'
+      : undefined;
+    setOutputState(recovered, detail);
+  }
+
+  document.getElementById('clear-out').onclick = clearOutput;
 
   function restoreSaved() {
     let saved = {};
@@ -188,9 +243,7 @@
       `<a href="${u}" target="_blank" rel="noopener" class="log-link">${u}</a>`);
   }
 
-  function appendLine(line) {
-    out.insertAdjacentHTML('beforeend', linkifyLine(line) + '<br>');
-  }
+  restoreOutput();
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -199,28 +252,40 @@
     if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
     persistOnSubmit();
     const fd = new FormData(form);
+    setOutputState('running', 'Running — streaming command output…');
     appendLine('');
     appendLine('--- run ' + new Date().toISOString() + ' ---');
-    const res = await fetch('/scripts/{{.Slug}}/run', { method: 'POST', body: new URLSearchParams(fd) });
-    if (!res.ok) { appendLine('✖ ' + res.status + ' ' + await res.text()); return; }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '', linePrefix = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const ln of block.split('\n')) {
-          if (ln.startsWith('data: ')) { appendLine(linePrefix + ln.slice(6)); linePrefix = ''; }
-          else if (ln.startsWith('event: error')) linePrefix = '✖ ';
-          else if (ln.startsWith('event: done')) appendLine('');
-        }
-        out.scrollTop = out.scrollHeight;
+    try {
+      const res = await fetch('/scripts/{{.Slug}}/run', { method: 'POST', body: new URLSearchParams(fd) });
+      if (!res.ok) {
+        appendLine('✖ ' + res.status + ' ' + await res.text());
+        setOutputState('failure', 'Failed — the command returned HTTP ' + res.status + '.');
+        return;
       }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', linePrefix = '', streamFailed = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('data: ')) { appendLine(linePrefix + ln.slice(6)); linePrefix = ''; }
+            else if (ln.startsWith('event: error')) { streamFailed = true; linePrefix = '✖ '; }
+            else if (ln.startsWith('event: done')) appendLine('', false);
+          }
+          out.scrollTop = out.scrollHeight;
+        }
+      }
+      if (streamFailed) setOutputState('failure', 'Failed — the command reported an error.');
+      else setOutputState('success', 'Success — command completed.');
+    } catch (err) {
+      appendLine('✖ Command failed: ' + (err && err.message ? err.message : err));
+      setOutputState('failure', 'Failed — the command stream could not be completed.');
     }
   });
 })();
