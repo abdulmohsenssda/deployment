@@ -37,21 +37,26 @@
       <input id="filter" type="search" placeholder="Filter tenants…" class="search-input"
              autocomplete="off" aria-label="Filter tenants">
       <span id="snapshot-meta" class="snapshot-meta" role="status" aria-live="polite">Waiting for health snapshot…</span>
-      <span id="pulse" class="live-dot" title="Live updates" role="status" aria-label="Live updates"></span>
+      <span id="pulse" class="live-dot" title="Live updates" aria-hidden="true"></span>
     </div>
   </div>
 
+  <span id="tenant-stream-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    Connecting to live tenant updates.
+  </span>
+
   <div class="table-wrap fleet-table-wrap">
-    <table class="data-table fleet-table">
+    <table class="data-table fleet-table" aria-busy="true" aria-describedby="tenant-stream-status">
+      <caption class="sr-only">Tenant fleet status</caption>
       <thead>
         <tr>
-          <th class="col-status"></th>
-          <th class="col-name">Tenant</th>
-          <th class="col-health">Health</th>
-          <th class="col-state">State</th>
-          <th class="col-version">Version</th>
-          <th class="col-apps">Apps</th>
-          <th class="col-actions">Actions</th>
+          <th class="col-status" scope="col"><span class="sr-only">Status</span></th>
+          <th class="col-name" scope="col">Tenant</th>
+          <th class="col-health" scope="col">Health</th>
+          <th class="col-state" scope="col">State</th>
+          <th class="col-version" scope="col">Version</th>
+          <th class="col-apps" scope="col">Apps</th>
+          <th class="col-actions" scope="col">Actions</th>
         </tr>
       </thead>
       <tbody id="tenant-tbody">
@@ -84,9 +89,9 @@
     <td class="col-apps" data-label="Apps"><span class="js-apps row-sub"></span></td>
     <td class="col-actions">
       <div class="row-actions">
-        <button class="btn-action js-restart" data-act="restart">↺ Restart</button>
-        <button class="btn-action warn js-stop"  data-act="stop">⏹ Stop</button>
-        <button class="btn-action good js-start" data-act="start">▶ Start</button>
+        <button class="btn-action js-restart" data-act="restart" aria-busy="false">↺ Restart</button>
+        <button class="btn-action warn js-stop"  data-act="stop" aria-busy="false">⏹ Stop</button>
+        <button class="btn-action good js-start" data-act="start" aria-busy="false">▶ Start</button>
         <a class="btn-action js-open" target="_blank" rel="noopener" style="display:none">↗ Open</a>
         <span class="btn-action unavailable js-open-unavailable" role="status" aria-live="polite" style="display:none"></span>
       </div>

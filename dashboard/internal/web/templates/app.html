@@ -43,10 +43,13 @@
 <div class="panel">
   <div class="panel-title">Actions</div>
   <div class="action-row">
-    <button class="app-act btn btn-success" data-app-act="start">▶ Start</button>
-    <button class="app-act btn btn-danger" data-app-act="stop" data-confirm="Stop {{.Name}}?">⏹ Stop</button>
-    <button class="app-act btn btn-secondary" data-app-act="restart" data-confirm="Restart {{.Name}}?">↺ Restart</button>
-    <button class="app-act btn btn-secondary" data-app-act="rebuild" data-confirm="Rebuild {{.Name}}?">⟳ Rebuild</button>
+    <button class="app-act btn btn-success" data-app-act="start" aria-controls="logs" aria-busy="false">▶ Start</button>
+    <button class="app-act btn btn-danger" data-app-act="stop" data-confirm="Stop {{.Name}}?"
+            aria-controls="logs" aria-busy="false">⏹ Stop</button>
+    <button class="app-act btn btn-secondary" data-app-act="restart" data-confirm="Restart {{.Name}}?"
+            aria-controls="logs" aria-busy="false">↺ Restart</button>
+    <button class="app-act btn btn-secondary" data-app-act="rebuild" data-confirm="Rebuild {{.Name}}?"
+            aria-controls="logs" aria-busy="false">⟳ Rebuild</button>
     <a href="/apps/{{.Name}}/logs.txt" class="btn btn-secondary" style="margin-left:auto">⬇ Download logs</a>
   </div>
 </div>
@@ -54,17 +57,20 @@
 <!-- Durable action history -->
 <div class="panel activity-panel">
   <div class="panel-title">Recent activity</div>
-  <pre id="activity" class="terminal terminal-compact" data-state="loading" aria-live="polite">Loading recent activity…</pre>
+  <pre id="activity" class="terminal terminal-compact" data-state="loading" role="log"
+       aria-live="polite" aria-atomic="false" aria-label="Recent activity">Loading recent activity…</pre>
 </div>
 
 <!-- Live log stream -->
-<div class="panel">
+<div class="panel" aria-labelledby="app-logs-title">
   <div class="panel-title log-stream-header">
-    <span>Live logs</span>
+    <span id="app-logs-title">Live logs</span>
     <span id="log-stream-status" class="badge badge-info" role="status" aria-live="polite">Connecting…</span>
     <button id="log-stream-retry" class="btn btn-secondary" type="button" hidden>Retry now</button>
   </div>
-  <pre id="logs" class="terminal" data-stream-url="/apps/{{.Name}}/logs"></pre>
+  <pre id="logs" class="terminal" role="log" aria-live="polite" aria-atomic="false"
+       aria-relevant="additions" aria-busy="true" aria-labelledby="app-logs-title"
+       tabindex="0" data-stream-url="/apps/{{.Name}}/logs"></pre>
 </div>
 
 <script>
@@ -119,7 +125,10 @@
       const verb = btn.dataset.appAct;
       if (btn.dataset.confirm && !confirm(btn.dataset.confirm)) return;
       actionBusy = true;
-      actionBtns.forEach((item) => { item.disabled = true; });
+      actionBtns.forEach((item) => {
+        item.disabled = true;
+        item.setAttribute('aria-busy', 'true');
+      });
       const previous = btn.textContent;
       btn.textContent = 'Working…';
       appendActivity('--- ' + verb + ' {{.Name}} ---');
@@ -131,7 +140,10 @@
         appendActivity('✖ ' + verb + ' failed: ' + (error?.message || error));
       } finally {
         btn.textContent = previous;
-        actionBtns.forEach((item) => { item.disabled = false; });
+        actionBtns.forEach((item) => {
+          item.disabled = false;
+          item.setAttribute('aria-busy', 'false');
+        });
         actionBusy = false;
       }
     });

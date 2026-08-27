@@ -4,11 +4,14 @@
 
   // ── Toast ─────────────────────────────────────────────────
   const toastBox = document.getElementById('toast');
+  const toastStatus = document.getElementById('toast-status');
   function toast(msg, kind = 'ok') {
     if (!toastBox) { alert(msg); return; }
     const el = document.createElement('div');
     el.className = 'toast ' + kind;
+    el.setAttribute('aria-hidden', 'true');
     el.textContent = msg;
+    if (toastStatus) toastStatus.textContent = msg;
     toastBox.appendChild(el);
     setTimeout(() => {
       el.style.opacity = '0'; el.style.transition = 'opacity .3s';
@@ -227,6 +230,9 @@
   let filterVal  = '';
   let allTenants = [];
   let currentOpenStates = {};
+  let fleetStream = null;
+  let fleetRetryTimer = null;
+  let fleetStreamClosed = false;
 
   function renderTable(tenants) {
     if (!tbody || !tpl) return;
@@ -580,9 +586,21 @@
   }
 
   function connectSSE() {
+    if (fleetStream || fleetStreamClosed) return;
     const es = new EventSource('/events');
+    fleetStream = es;
+    const table = tbody?.closest('table');
+    const streamStatus = document.getElementById('tenant-stream-status');
+    if (table) table.setAttribute('aria-busy', 'true');
+    if (streamStatus) streamStatus.textContent = 'Connecting to live tenant updates.';
+    es.onopen = () => {
+      if (fleetStream !== es || fleetStreamClosed) return;
+      if (streamStatus) streamStatus.textContent = 'Live tenant updates connected.';
+    };
     es.addEventListener('snapshot', ev => {
+      if (fleetStream !== es || fleetStreamClosed) return;
       try {
+        if (table) table.setAttribute('aria-busy', 'true');
         const data = JSON.parse(ev.data);
         // Keep bootstrap navigation metadata if an older/misconfigured
         // snapshot omits the open-state map.
@@ -612,14 +630,44 @@
           clearTimeout(pulseEl._t);
           pulseEl._t = setTimeout(() => pulseEl.classList.remove('active'), 1200);
         }
-      } catch (_) {}
+        if (streamStatus) streamStatus.textContent = 'Live tenant updates connected.';
+      } catch (_) {
+        if (streamStatus) streamStatus.textContent = 'Unable to read tenant updates.';
+      } finally {
+        if (table) table.setAttribute('aria-busy', 'false');
+      }
     });
-    es.onerror = () => setTimeout(connectSSE, 3000);
+    es.onerror = () => {
+      if (fleetStream !== es || fleetStreamClosed) return;
+      es.close();
+      fleetStream = null;
+      if (table) table.setAttribute('aria-busy', 'true');
+      if (streamStatus) streamStatus.textContent = 'Live tenant updates disconnected; reconnecting.';
+      if (fleetRetryTimer === null) {
+        fleetRetryTimer = setTimeout(() => {
+          fleetRetryTimer = null;
+          connectSSE();
+        }, 3000);
+      }
+    };
   }
 
   if (document.getElementById('tenant-tbody')) {
     bootstrapFleet();
     connectSSE();
+    const closeFleetStream = () => {
+      fleetStreamClosed = true;
+      if (fleetRetryTimer !== null) {
+        clearTimeout(fleetRetryTimer);
+        fleetRetryTimer = null;
+      }
+      if (fleetStream) {
+        fleetStream.close();
+        fleetStream = null;
+      }
+    };
+    window.addEventListener('beforeunload', closeFleetStream, { once: true });
+    window.addEventListener('pagehide', closeFleetStream, { once: true });
   }
 
   // ── Image tag live-search dropdown ───────────────────────

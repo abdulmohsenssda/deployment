@@ -104,3 +104,92 @@ func TestPaletteTemplateHasAccessibleDialogAndSearch(t *testing.T) {
 		}
 	}
 }
+
+func TestAsyncOutputRegionsHaveAccessibleSemantics(t *testing.T) {
+	tests := map[string][]string{
+		"_layout.html": {
+			`id="toast" class="toast-container" role="status" aria-live="polite" aria-atomic="true" aria-relevant="text"`,
+			`id="toast-status" class="sr-only"`,
+		},
+		"index.html": {
+			`id="tenant-stream-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"`,
+			`aria-busy="true" aria-describedby="tenant-stream-status"`,
+			`<caption class="sr-only">Tenant fleet status</caption>`,
+			`<th class="col-name" scope="col">Tenant</th>`,
+		},
+		"app.html": {
+			`id="logs" class="terminal" role="log" aria-live="polite" aria-atomic="false"`,
+			`aria-relevant="additions" aria-busy="true" aria-labelledby="app-logs-title"`,
+			`id="log-stream-status" class="badge badge-info" role="status" aria-live="polite"`,
+			`aria-controls="logs" aria-busy="false"`,
+		},
+		"script.html": {
+			`id="out" class="terminal" role="log" aria-live="polite" aria-atomic="false"`,
+			`aria-relevant="additions" aria-busy="false" aria-labelledby="command-output-title"`,
+			`id="run-status" class="alert" role="status" aria-live="polite"`,
+		},
+		"tenant.html": {
+			`id="tenant-out" class="terminal" role="log" aria-live="polite" aria-atomic="false"`,
+			`aria-relevant="additions" aria-busy="false"`,
+			`id="backup-table" aria-busy="true"`,
+			`id="backup-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"`,
+			`role="dialog" aria-modal="true" aria-labelledby="restore-modal-title"`,
+			`aria-describedby="restore-modal-desc" aria-hidden="true"`,
+		},
+	}
+
+	for path, want := range tests {
+		text := embeddedTemplate(t, path)
+		for _, token := range want {
+			if !strings.Contains(text, token) {
+				t.Errorf("%s is missing accessibility token %q", path, token)
+			}
+		}
+	}
+}
+
+func TestToastUsesOneAnnouncedRegionAndHiddenVisualCopies(t *testing.T) {
+	layout := embeddedTemplate(t, "_layout.html")
+	if strings.Count(layout, `id="toast"`) != 1 || strings.Count(layout, `role="status"`) != 1 {
+		t.Fatal("layout should expose one toast status region")
+	}
+
+	appJS, err := staticFS.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	source := string(appJS)
+	for _, token := range []string{
+		`const toastStatus = document.getElementById('toast-status')`,
+		`el.setAttribute('aria-hidden', 'true')`,
+		`toastStatus.textContent = msg`,
+	} {
+		if !strings.Contains(source, token) {
+			t.Errorf("app.js is missing toast accessibility token %q", token)
+		}
+	}
+}
+
+func TestTerminalOutputAppendsIncrementalLines(t *testing.T) {
+	for _, path := range []string{"script.html", "tenant.html"} {
+		text := embeddedTemplate(t, path)
+		if !strings.Contains(text, `className = 'terminal-line'`) {
+			t.Errorf("%s should append output as individual terminal lines", path)
+		}
+	}
+	if !strings.Contains(embeddedTemplate(t, "app.html"), `data-stream-url="/apps/{{.Name}}/logs"`) {
+		t.Fatal("app.html should expose the shared bounded log stream")
+	}
+}
+
+func TestAsyncOutputSkipsDecorativeAnnouncements(t *testing.T) {
+	script := embeddedTemplate(t, "script.html")
+	if !strings.Contains(script, `appendLine('--- run ' + new Date().toISOString() + ' ---', true, false)`) {
+		t.Fatal("command output run separators should not be announced")
+	}
+
+	tenant := embeddedTemplate(t, "tenant.html")
+	if !strings.Contains(tenant, `append('--- ' + method + ' ' + url + ' @ ' + new Date().toISOString() + ' ---', true, false)`) {
+		t.Fatal("tenant action separators should not be announced")
+	}
+}

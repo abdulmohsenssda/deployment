@@ -48,7 +48,9 @@
   </main>
 
   {{template "palette.html" .}}
-  <div id="toast" class="toast-container"></div>
+  <div id="toast" class="toast-container" role="status" aria-live="polite" aria-atomic="true" aria-relevant="text">
+    <span id="toast-status" class="sr-only"></span>
+  </div>
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
