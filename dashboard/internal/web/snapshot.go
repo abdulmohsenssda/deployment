@@ -137,6 +137,8 @@ func snapshotJSON(s appSnapshot) string {
 	fmt.Fprintf(&b, `"healthy":%t,"refreshing":%t,"updated_at":%q,"duration_ms":%d,"error":%q,"apps":`,
 		s.Healthy, s.Refreshing, s.UpdatedAt.UTC().Format(time.RFC3339), s.Duration.Milliseconds(), s.Error)
 	writeAppsJSONArray(&b, s.Apps)
+	b.WriteString(`,"open":`)
+	writeFleetOpenJSON(&b, s.Apps)
 	b.WriteByte('}')
 	return b.String()
 }

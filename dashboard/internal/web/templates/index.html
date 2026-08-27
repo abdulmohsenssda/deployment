@@ -21,6 +21,8 @@
   </div>
 </div>
 
+<script id="fleet-bootstrap" type="application/json">{{.FleetBootstrap}}</script>
+
 <div class="panel">
   <div class="panel-toolbar">
     <div class="status-summary">
@@ -77,7 +79,8 @@
         <button class="btn-action js-restart" data-act="restart">↺ Restart</button>
         <button class="btn-action warn js-stop"  data-act="stop">⏹ Stop</button>
         <button class="btn-action good js-start" data-act="start">▶ Start</button>
-        <a class="btn-action js-open" href="#" target="_blank" rel="noopener" style="display:none">↗ Open</a>
+        <a class="btn-action js-open" target="_blank" rel="noopener" style="display:none">↗ Open</a>
+        <span class="btn-action unavailable js-open-unavailable" role="status" aria-live="polite" style="display:none"></span>
       </div>
     </td>
   </tr>

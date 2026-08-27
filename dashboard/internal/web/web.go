@@ -262,12 +262,13 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	snap, _ := s.snapshots.Snapshot()
 	data := map[string]any{
-		"Env":        s.cfg.EnvName,
-		"Base":       s.cfg.BaseDomain,
-		"Apps":       snap.Apps,
-		"Healthy":    snap.Healthy,
-		"UpdatedAt":  snap.UpdatedAt,
-		"Refreshing": snap.Refreshing,
+		"Env":            s.cfg.EnvName,
+		"Base":           s.cfg.BaseDomain,
+		"Apps":           snap.Apps,
+		"FleetBootstrap": template.JS(marshalFleetBootstrap(snap.Apps)),
+		"Healthy":        snap.Healthy,
+		"UpdatedAt":      snap.UpdatedAt,
+		"Refreshing":     snap.Refreshing,
 	}
 	if r.Header.Get("HX-Request") == "true" {
 		s.renderPartial(w, "apps_table.html", data)

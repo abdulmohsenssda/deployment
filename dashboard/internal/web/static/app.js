@@ -85,10 +85,17 @@
 
   // ── Group flat apps[] into tenants ────────────────────────
   // SSE snapshot sends individual apps; we derive one row per tenant.
-  function appsToTenants(apps) {
+  function appDomains(app) {
+    const domains = Array.isArray(app?.domains) ? app.domains : String(app?.domains || '').split(',');
+    return domains.map(d => String(d).trim()).filter(Boolean);
+  }
+
+  function appsToTenants(apps, openStates = {}) {
     const map = new Map();
     for (const app of apps) {
-      const name = app.tenant || app.name.replace(/-(backend|frontend)$/, '');
+      const tenant = typeof app.tenant === 'string' ? app.tenant.trim() : '';
+      const appName = typeof app.name === 'string' ? app.name : '';
+      const name = tenant || appName.replace(/-(backend|frontend)$/, '');
       if (!map.has(name)) {
         map.set(name, { name, apps: [], state: 'unknown', health: 'unknown', version: '', domain: '' });
       }
@@ -123,8 +130,13 @@
       t.version = backend?.version || '';
 
       // Domain from frontend
-      const feDomains = frontend?.domains ? frontend.domains.split(',').filter(Boolean) : [];
-      t.domain = feDomains[0] || (backend?.domains ? backend.domains.split(',')[0] : '');
+      const feDomains = appDomains(frontend);
+      const beDomains = appDomains(backend);
+      t.domain = feDomains[0] || beDomains[0] || '';
+
+      const open = openStates[t.name] || {};
+      t.openURL = typeof open.url === 'string' ? open.url : '';
+      t.openUnavailable = typeof open.unavailable === 'string' ? open.unavailable : '';
 
       tenants.push(t);
     });
@@ -222,12 +234,25 @@
     if (appsEl) appsEl.textContent = t.apps.map(a => a.role || a.name).join(', ');
 
     const openBtn = row.querySelector('.js-open');
-    if (openBtn) {
-      if (t.domain && t.state === 'running') {
-        openBtn.href = 'http://' + t.domain;
+    const unavailableEl = row.querySelector('.js-open-unavailable');
+    if (openBtn && unavailableEl) {
+      if (t.openURL) {
+        openBtn.href = t.openURL;
+        openBtn.textContent = '↗ Open';
         openBtn.style.display = '';
+        unavailableEl.style.display = 'none';
       } else {
+        openBtn.removeAttribute('href');
         openBtn.style.display = 'none';
+        if (t.apps.length) {
+          unavailableEl.textContent = '↗ Unavailable: ' + (t.openUnavailable || 'No public URL configured');
+          unavailableEl.title = unavailableEl.textContent;
+          unavailableEl.style.display = '';
+        } else {
+          unavailableEl.textContent = '';
+          unavailableEl.removeAttribute('title');
+          unavailableEl.style.display = 'none';
+        }
       }
     }
   }
@@ -393,12 +418,24 @@
   });
 
   // ── SSE stream ────────────────────────────────────────────
+  function bootstrapFleet() {
+    const el = document.getElementById('fleet-bootstrap');
+    if (!el) return;
+    try {
+      const data = JSON.parse(el.textContent || '{}');
+      allTenants = appsToTenants(data.apps || [], data.open || {});
+      palTenants = allTenants;
+      renderTable(allTenants);
+      updateSummary(allTenants);
+    } catch (_) {}
+  }
+
   function connectSSE() {
     const es = new EventSource('/events');
     es.addEventListener('snapshot', ev => {
       try {
         const data = JSON.parse(ev.data);
-        allTenants = appsToTenants(data.apps || []);
+        allTenants = appsToTenants(data.apps || [], data.open || {});
         palTenants = allTenants;
         renderTable(allTenants);
         updateSummary(allTenants);
@@ -421,7 +458,10 @@
     es.onerror = () => setTimeout(connectSSE, 3000);
   }
 
-  if (document.getElementById('tenant-tbody')) connectSSE();
+  if (document.getElementById('tenant-tbody')) {
+    bootstrapFleet();
+    connectSSE();
+  }
 
   // ── Image tag live-search dropdown ───────────────────────
   // API: GET /api/image-tags?q=<query>

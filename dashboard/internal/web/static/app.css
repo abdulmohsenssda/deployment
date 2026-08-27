@@ -431,6 +431,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .btn-action.good:hover   { background: var(--green-bg); }
 .btn-action.warn         { color: var(--amber); border-color: var(--amber-bd); }
 .btn-action.warn:hover   { background: var(--amber-bg); }
+.btn-action.unavailable  { color: var(--text-dim); border-style: dashed; cursor: default; }
 
 /* Skeleton rows */
 .skel-row td { padding: 12px; }
