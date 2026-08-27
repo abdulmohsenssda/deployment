@@ -33,7 +33,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; overflow-x: hidden; }
 body {
   font-family: var(--sans);
   background: var(--bg);
@@ -154,6 +154,7 @@ input, select, textarea { font: inherit; color: inherit; }
   margin-top: 2px;
   font-size: 12px;
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 .page-subtitle code { color: var(--text-dim); font-size: 11px; }
 .page-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
@@ -368,7 +369,12 @@ input, select, textarea { font: inherit; color: inherit; }
 .search-input::placeholder { color: var(--text-dim); }
 
 /* ── Data table ──────────────────────────────────────────── */
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -522,6 +528,23 @@ input, select, textarea { font: inherit; color: inherit; }
 .form-textarea { min-height: 72px; resize: vertical; font-family: var(--mono); }
 
 .action-row  { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fleet-quick-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.fleet-quick-create .quick-create-kind {
+  flex: 0 0 90px;
+  width: 90px;
+  min-width: 0;
+}
+.fleet-quick-create .quick-create-name {
+  flex: 0 1 140px;
+  width: 140px;
+  min-width: 0;
+}
+.fleet-table-wrap { width: 100%; }
 .quick-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
 .quick-link {
   display: block;
@@ -840,6 +863,17 @@ input, select, textarea { font: inherit; color: inherit; }
   .hero-actions .command-link { flex: 1 1 140px; }
   .release-grid { grid-template-columns: minmax(0, 1fr); }
   .release-actions .action-chip { flex: 1 1 120px; }
+  .fleet-toolbar { align-items: stretch; }
+  .fleet-toolbar .status-summary { width: 100%; }
+  .fleet-filter-controls {
+    width: 100%;
+    min-width: 0;
+  }
+  .fleet-filter-controls .search-input {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
 }
 
 @media (max-width: 480px) {
@@ -852,6 +886,166 @@ input, select, textarea { font: inherit; color: inherit; }
   .password-page .password-form { padding:16px; }
   .password-actions { align-items:stretch; }
   .password-submit { width:100%; }
+}
+
+@media (max-width: 640px) {
+  .fleet-header-actions {
+    width: 100%;
+    flex: 1 1 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .fleet-quick-create {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+  .fleet-quick-create .quick-create-kind,
+  .fleet-quick-create .quick-create-name {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+  }
+  .fleet-quick-create .btn,
+  .fleet-header-actions > .quick-create-sync {
+    width: 100%;
+  }
+  .fleet-quick-create .btn { grid-column: 1 / -1; }
+
+  .fleet-table-wrap { overflow: visible; }
+  .fleet-table,
+  .fleet-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .fleet-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .fleet-table tbody {
+    display: grid;
+    gap: 8px;
+  }
+  .fleet-table .tenant-row {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "status name name"
+      "health health state"
+      "version version apps"
+      "actions actions actions";
+    gap: 0 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-row);
+  }
+  .fleet-table .tenant-row:hover { background: var(--bg-row-h); }
+  .fleet-table .tenant-row:hover td { background: transparent; }
+  .fleet-table .tenant-row:last-child td { border-bottom: 0; }
+  .fleet-table .tenant-row td {
+    display: flex;
+    align-items: center;
+    width: auto;
+    min-width: 0;
+    padding: 6px 0;
+    border-bottom: 0;
+  }
+  .fleet-table .col-status {
+    grid-area: status;
+    justify-content: center;
+    padding-top: 13px;
+  }
+  .fleet-table .col-name {
+    grid-area: name;
+    min-width: 0;
+  }
+  .fleet-table .col-health {
+    grid-area: health;
+    width: auto;
+  }
+  .fleet-table .col-state {
+    grid-area: state;
+    width: auto;
+  }
+  .fleet-table .col-version {
+    display: flex;
+    grid-area: version;
+    width: auto;
+  }
+  .fleet-table .col-apps {
+    display: flex;
+    grid-area: apps;
+    width: auto;
+  }
+  .fleet-table td[data-label]::before {
+    flex: 0 0 auto;
+    content: attr(data-label);
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+  }
+  .fleet-table .tenant-link,
+  .fleet-table .js-name,
+  .fleet-table .js-domain {
+    min-width: 0;
+  }
+  .fleet-table .js-name,
+  .fleet-table .js-domain,
+  .fleet-table .js-apps {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fleet-table .row-mono {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .fleet-table .col-actions {
+    grid-area: actions;
+    width: auto;
+    padding-top: 10px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .fleet-table .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+  }
+  .fleet-table .btn-action {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    height: auto;
+    justify-content: center;
+    padding: 5px 6px;
+    text-align: center;
+    white-space: normal;
+  }
+  .fleet-table .skel-row,
+  .fleet-table .empty-row {
+    display: block;
+    width: 100%;
+  }
+  .fleet-table .skel-row td,
+  .fleet-table .empty-row td {
+    display: block;
+    width: 100%;
+  }
 }
 
 /* ── Image tag live-search dropdown ──────────────────────── */

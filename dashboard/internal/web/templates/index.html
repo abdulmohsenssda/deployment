@@ -6,25 +6,26 @@
     <h1 class="page-title">Tenant Fleet</h1>
     <span class="page-subtitle">Base domain: <code>*.{{.Base}}</code></span>
   </div>
-  <div class="page-header-right">
-    <!-- Quick create: kind prefix + name + button -->
-    <select id="kind-select" class="form-select" style="width:90px" title="Environment kind prefix"
-            aria-label="Environment kind prefix">
-      <option value="dev">dev</option>
-      <option value="qa">qa</option>
-      <option value="prod">prod</option>
-    </select>
-    <input id="new-tenant-name" type="text" class="search-input" style="width:140px"
-           placeholder="tenant name…" autocomplete="off" spellcheck="false" aria-label="New tenant name">
-    <button type="button" id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
-    <a href="/scripts/deploy-all" class="btn btn-secondary">Sync image</a>
+  <div class="page-header-right fleet-header-actions">
+    <div class="fleet-quick-create">
+      <select id="kind-select" class="form-select quick-create-kind"
+              title="Environment kind prefix" aria-label="Environment kind prefix">
+        <option value="dev">dev</option>
+        <option value="qa">qa</option>
+        <option value="prod">prod</option>
+      </select>
+      <input id="new-tenant-name" type="text" class="search-input quick-create-name"
+             placeholder="tenant name…" autocomplete="off" spellcheck="false" aria-label="New tenant name">
+      <button type="button" id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
+    </div>
+    <a href="/scripts/deploy-all" class="btn btn-secondary quick-create-sync">Sync image</a>
   </div>
 </div>
 
 <script id="fleet-bootstrap" type="application/json">{{.FleetBootstrap}}</script>
 
-<div class="panel">
-  <div class="panel-toolbar">
+<div class="panel fleet-panel">
+  <div class="panel-toolbar fleet-toolbar">
     <div class="status-summary">
       <span class="status-count" id="s-total">— tenants</span>
       <span class="status-count running" id="s-running" style="display:none"></span>
@@ -32,15 +33,15 @@
       <span class="status-count stopped" id="s-stopped" style="display:none"></span>
       <span id="dokku-pill" class="dokku-pill">Dokku <span class="dokku-status">…</span></span>
     </div>
-    <div class="panel-toolbar-right">
+    <div class="panel-toolbar-right fleet-filter-controls">
       <input id="filter" type="search" placeholder="Filter tenants…" class="search-input"
              autocomplete="off" aria-label="Filter tenants">
       <span id="pulse" class="live-dot" title="Live updates" role="status" aria-label="Live updates"></span>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <table class="data-table">
+  <div class="table-wrap fleet-table-wrap">
+    <table class="data-table fleet-table">
       <thead>
         <tr>
           <th class="col-status"></th>
@@ -70,10 +71,10 @@
         <span class="js-domain row-sub"></span>
       </a>
     </td>
-    <td class="col-health"><span class="badge js-health-badge"></span></td>
-    <td class="col-state"><span class="badge js-state-badge"></span></td>
-    <td class="col-version"><code class="js-version row-mono"></code></td>
-    <td class="col-apps"><span class="js-apps row-sub"></span></td>
+    <td class="col-health" data-label="Health"><span class="badge js-health-badge"></span></td>
+    <td class="col-state" data-label="State"><span class="badge js-state-badge"></span></td>
+    <td class="col-version" data-label="Version"><code class="js-version row-mono"></code></td>
+    <td class="col-apps" data-label="Apps"><span class="js-apps row-sub"></span></td>
     <td class="col-actions">
       <div class="row-actions">
         <button class="btn-action js-restart" data-act="restart">↺ Restart</button>

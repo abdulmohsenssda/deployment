@@ -104,6 +104,82 @@ test('fleet filter input exists', async ({ page }) => {
   await expect(page.locator('#filter')).toBeVisible();
 });
 
+test('fleet remains usable at a 390px viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/events', route => route.fulfill({
+    contentType: 'text/event-stream',
+    headers: { 'Cache-Control': 'no-cache' },
+    body: [
+      'event: snapshot',
+      `data: ${JSON.stringify({
+        healthy: true,
+        apps: [
+          {
+            name: 'dev-acme-backend',
+            tenant: 'dev-acme',
+            role: 'backend',
+            state: 'running',
+            http: '200',
+            version: 'v1.2.3',
+          },
+          {
+            name: 'dev-acme-frontend',
+            tenant: 'dev-acme',
+            role: 'frontend',
+            state: 'running',
+            domains: 'acme.example.test',
+            version: 'v1.2.3',
+          },
+        ],
+      })}`,
+      '',
+      '',
+    ].join('\n'),
+  }));
+  await page.route('**/tenants/dev-acme/start', route => route.fulfill({ status: 200, body: 'ok' }));
+
+  await login(page);
+  const row = page.locator('.tenant-row[data-name="dev-acme"]');
+  await expect(row).toBeVisible();
+  await expect(page.locator('.fleet-quick-create')).toBeVisible();
+  await expect(row.locator('.row-actions')).toBeVisible();
+
+  const layout = await page.evaluate(() => ({
+    viewportWidth: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body.scrollWidth,
+    rowDisplay: getComputedStyle(document.querySelector('.tenant-row')!).display,
+    actionsDisplay: getComputedStyle(document.querySelector('.row-actions')!).display,
+    actionRight: document.querySelector('.row-actions')!.getBoundingClientRect().right,
+    cardRight: document.querySelector('.tenant-row')!.getBoundingClientRect().right,
+  }));
+  expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.bodyWidth).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.rowDisplay).toBe('grid');
+  expect(layout.actionsDisplay).toBe('grid');
+  expect(layout.actionRight).toBeLessThanOrEqual(layout.cardRight + 1);
+
+  await page.fill('#filter', 'acme');
+  await expect(row).toHaveCount(1);
+  await page.fill('#filter', 'missing');
+  await expect(page.locator('.empty-row')).toBeVisible();
+  await page.fill('#filter', '');
+
+  const startRequest = page.waitForRequest(request =>
+    request.method() === 'POST' && request.url().endsWith('/tenants/dev-acme/start')
+  );
+  await row.locator('.js-start').click();
+  await startRequest;
+
+  const createNavigation = page.waitForURL(url =>
+    url.pathname === '/scripts/create-tenant' && url.searchParams.get('_pos_name') === 'qa-acme'
+  );
+  await page.selectOption('#kind-select', 'qa');
+  await page.fill('#new-tenant-name', 'acme');
+  await page.locator('#create-tenant-btn').click();
+  await createNavigation;
+});
+
 test('SSE loads and removes skeleton rows', async ({ page }) => {
   await login(page);
   // Skeletons should disappear once SSE fires
