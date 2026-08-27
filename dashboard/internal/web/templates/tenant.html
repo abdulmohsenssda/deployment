@@ -191,42 +191,57 @@
 </div>
 
 <!-- Backup panel -->
-<div class="panel">
-  <div class="panel-toolbar">
-    <span class="panel-title" style="border:none;padding:0;margin:0">Backups</span>
-    <div style="font-size:11px;color:var(--text-muted)">
-      Auto backups retained 7 days &nbsp;·&nbsp; User backups kept until deleted (max {{.MaxUserBackups}})
+<div class="panel backup-panel">
+  <div class="panel-toolbar backup-toolbar">
+    <div class="backup-toolbar-heading">
+      <span class="panel-title backup-toolbar-title">Backups</span>
+      <span class="backup-retention">
+        Auto backups retained 7 days · User backups kept until deleted (max {{.MaxUserBackups}})
+      </span>
     </div>
-    <div class="panel-toolbar-right">
-      <input id="backup-label" type="text" placeholder="Optional label for backup…"
-             aria-label="Optional backup label" class="search-input" style="width:200px">
-      <button id="create-backup-btn" class="btn btn-primary">+ Create Backup</button>
+    <div class="backup-toolbar-controls" aria-label="Backup history controls">
+      <label class="backup-field">
+        <span class="backup-field-label">Search history</span>
+        <input id="backup-search" type="search" placeholder="ID, owner, origin…"
+               class="search-input" autocomplete="off">
+      </label>
+      <label class="backup-field">
+        <span class="backup-field-label">Label new backup</span>
+        <input id="backup-label" type="text" placeholder="Optional label…"
+               class="search-input">
+      </label>
+      <button id="create-backup-btn" type="button" class="btn btn-primary">+ Create Backup</button>
     </div>
   </div>
-  <div class="table-wrap">
-    <table class="data-table" id="backup-table">
+  <p id="backup-responsive-help" class="backup-responsive-help">
+    On narrow screens, each backup is shown as a card and its actions wrap below the details.
+  </p>
+  <div class="table-wrap backup-table-wrap" role="region" aria-label="Tenant backup history" tabindex="0">
+    <table class="data-table backup-table" id="backup-table" aria-describedby="backup-responsive-help">
       <thead>
         <tr>
-          <th>Backup ID</th>
-          <th>Created</th>
-          <th>Origin</th>
-          <th>Owner</th>
-          <th>Verified</th>
-          <th>DB Artifact</th>
-          <th style="width:200px">Actions</th>
+          <th scope="col">Backup ID</th>
+          <th scope="col">Created</th>
+          <th scope="col">Origin</th>
+          <th scope="col">Owner</th>
+          <th scope="col">Verified</th>
+          <th scope="col">DB Artifact</th>
+          <th scope="col">Actions</th>
         </tr>
       </thead>
       <tbody id="backup-tbody">
-        <tr><td colspan="7" class="empty-cell">Loading backups…</td></tr>
+        <tr class="backup-empty-row"><td colspan="7" class="empty-cell">Loading backups…</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
 <!-- Restore confirmation modal -->
-<div id="restore-modal" class="modal-overlay" style="display:none">
+<div id="restore-modal" class="modal-overlay" style="display:none"
+     role="dialog" aria-modal="true" aria-labelledby="restore-modal-title"
+     aria-describedby="restore-modal-desc">
   <div class="modal-box">
-    <h2 class="modal-title">Restore from backup</h2>
+    <h2 id="restore-modal-title" class="modal-title">Restore from backup</h2>
     <p id="restore-modal-desc" class="modal-desc"></p>
     <div class="modal-warn">
       A verified safety backup of the current state will be taken before restoring.
@@ -247,7 +262,9 @@
   const activityStore = window.DashboardOperation.createStore('dashboard:tenant-activity:' + tenant);
   const form = document.getElementById('tenant-version-form');
   const backupTbody = document.getElementById('backup-tbody');
+  const backupSearch = document.getElementById('backup-search');
   const restoreModal = document.getElementById('restore-modal');
+  let backupItems = [];
   let pendingRestoreID = null;
   let activityLines = [];
   let activityState = 'idle';
@@ -524,92 +541,167 @@
   setupCredBtn('manager');
 
   // ── Backup list ────────────────────────────────────────────
+  function showBackupMessage(message, error) {
+    backupTbody.innerHTML =
+      '<tr class="backup-empty-row"><td colspan="7" class="empty-cell"></td></tr>';
+    const cell = backupTbody.querySelector('.empty-cell');
+    cell.textContent = message;
+    if (error) cell.style.color = 'var(--red)';
+  }
+
+  function escapeBackupHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function backupSearchText(backup) {
+    return [
+      backup.id,
+      backup.label,
+      backup.created_at,
+      backup.timestamp,
+      backup.origin,
+      backup.owner,
+      backup.files_artifact,
+      backup.db_artifact || backup.DBArtifact,
+    ].filter(value => value !== undefined && value !== null)
+      .map(String).join(' ').toLowerCase();
+  }
+
+  function renderBackups() {
+    const query = (backupSearch?.value || '').trim().toLowerCase();
+    const backups = backupItems.filter(backup =>
+      !query || backupSearchText(backup).includes(query));
+    if (backupItems.length === 0) {
+      showBackupMessage('No backups yet. Use "Create Backup" to create the first one.');
+      return;
+    }
+    if (backups.length === 0) {
+      showBackupMessage('No backups match "' + query + '".');
+      return;
+    }
+
+    backupTbody.innerHTML = backups.map(b => {
+      const id = String(b.id || '');
+      const safeID = escapeBackupHTML(id);
+      const isUser = b.origin === 'user';
+      const verBadge = b.verified
+        ? '<span class="badge badge-success">✓ verified</span>'
+        : '<span class="badge badge-warn">unverified</span>';
+      const originBadge = isUser
+        ? '<span class="badge badge-info">user</span>'
+        : '<span class="badge badge-neutral">auto</span>';
+      const dbFile = String(b.db_artifact || b.DBArtifact || '');
+      const safeDBFile = escapeBackupHTML(dbFile);
+      const encodedID = encodeURIComponent(id);
+      const dlBtn = dbFile
+        ? `<a href="/tenants/${encodeURIComponent(tenant)}/backups/${encodedID}/download" class="btn-action good" title="Download SQL backup" aria-label="Download SQL backup ${safeID}">⬇ SQL</a>`
+        : '<span class="backup-no-artifact">—</span>';
+      const verifyBtn = `<button type="button" class="btn-action" data-verify="${safeID}" aria-label="Verify backup ${safeID}">✓ Verify</button>`;
+      const restoreBtn = `<button type="button" class="btn-action" data-restore="${safeID}" aria-label="Restore backup ${safeID}">↩ Restore</button>`;
+      const delBtn = isUser
+        ? `<button type="button" class="btn-action warn" data-del="${safeID}" title="Delete user backup" aria-label="Delete user backup ${safeID}">🗑 Delete</button>`
+        : '<span class="backup-policy" title="Auto backups are deleted by retention policy">policy</span>';
+      const ts = String(b.created_at || b.timestamp || '—');
+      const shortTS = ts.length > 19 ? ts.slice(0, 19).replace('T', ' ') : ts;
+      return `<tr>
+        <td data-label="Backup ID"><code class="backup-id">${safeID}</code></td>
+        <td data-label="Created" class="backup-created">${escapeBackupHTML(shortTS)}</td>
+        <td data-label="Origin">${originBadge}</td>
+        <td data-label="Owner" class="backup-owner">${escapeBackupHTML(b.owner || '—')}</td>
+        <td data-label="Verified">${verBadge}</td>
+        <td data-label="DB Artifact" class="backup-artifact" title="${safeDBFile}">${safeDBFile || '—'}</td>
+        <td data-label="Actions">
+          <div class="row-actions backup-actions">
+            ${verifyBtn}
+            ${dlBtn}
+            ${restoreBtn}
+            ${delBtn}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    backupTbody.querySelectorAll('[data-verify]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.verify;
+        btn.disabled = true;
+        setActivityState('running', 'Running — verifying backup…');
+        append('--- verify backup ' + id + ' ---');
+        try {
+          const r = await fetch('/tenants/' + encodeURIComponent(tenant) +
+            '/backups/' + encodeURIComponent(id) + '/verify', { method: 'POST' });
+          if (r.ok) {
+            append(await r.text() || ('Backup ' + id + ' verified.'));
+            setActivityState('success', 'Success — backup verified.');
+            await loadBackups();
+          } else {
+            append('✖ Verify failed: ' + await r.text());
+            setActivityState('failure', 'Failed — backup verification failed.');
+          }
+        } catch (e) {
+          append('✖ Verify failed: ' + (e && e.message ? e.message : e));
+          setActivityState('failure', 'Failed — backup verification failed.');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    backupTbody.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Permanently delete backup ' + btn.dataset.del + '?\nThis cannot be undone.')) return;
+        btn.disabled = true;
+        setActivityState('running', 'Running — deleting backup…');
+        try {
+          const id = btn.dataset.del;
+          const r = await fetch('/tenants/' + encodeURIComponent(tenant) +
+            '/backups/' + encodeURIComponent(id) + '/delete', { method: 'POST' });
+          if (r.ok) {
+            append('Backup ' + id + ' deleted.');
+            setActivityState('success', 'Success — backup deleted.');
+            await loadBackups();
+          } else {
+            append('✖ Delete failed: ' + await r.text());
+            setActivityState('failure', 'Failed — backup could not be deleted.');
+          }
+        } catch (e) {
+          append('✖ Delete failed: ' + (e && e.message ? e.message : e));
+          setActivityState('failure', 'Failed — backup could not be deleted.');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    backupTbody.querySelectorAll('[data-restore]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pendingRestoreID = btn.dataset.restore;
+        document.getElementById('restore-modal-desc').textContent =
+          'Restore tenant "' + tenant + '" from backup: ' + pendingRestoreID;
+        restoreModal.style.display = 'flex';
+      });
+    });
+  }
+
   async function loadBackups() {
     try {
       const res = await fetch('/tenants/' + tenant + '/backups');
       if (!res.ok) {
-        backupTbody.innerHTML = `<tr><td colspan="7" class="empty-cell" style="color:var(--red)">Failed to load backups (${res.status}).</td></tr>`;
+        showBackupMessage('Failed to load backups (' + res.status + ').', true);
         return;
       }
       const data = await res.json();
-      const backups = (data.backups || []).sort((a, b) => (b.created_at || b.timestamp || '').localeCompare(a.created_at || a.timestamp || ''));
-      if (backups.length === 0) {
-        backupTbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No backups yet. Click "+ Create Backup" to create the first one.</td></tr>';
-        return;
-      }
-      backupTbody.innerHTML = backups.map(b => {
-        const isUser = b.origin === 'user';
-        const verBadge = b.verified
-          ? '<span class="badge badge-success">✓ verified</span>'
-          : '<span class="badge badge-warn">unverified</span>';
-        const originBadge = isUser
-          ? '<span class="badge badge-info">user</span>'
-          : '<span class="badge badge-neutral">auto</span>';
-        const dbFile = b.db_artifact || b.DBArtifact || '';
-        const dlBtn = dbFile
-          ? `<a href="/tenants/${tenant}/backups/${b.id}/download" class="btn-action good" title="Download SQL backup">⬇ SQL</a>`
-          : '<span style="font-size:11px;color:var(--text-dim)">—</span>';
-        const restoreBtn = `<button class="btn-action" data-restore="${b.id}">↩ Restore</button>`;
-        const delBtn = isUser
-          ? `<button class="btn-action warn" data-del="${b.id}" title="Delete user backup" aria-label="Delete user backup">🗑</button>`
-          : `<span title="Auto backups are deleted by retention policy" style="font-size:11px;color:var(--text-dim)">policy</span>`;
-        const ts = b.created_at || b.timestamp || '—';
-        const shortTS = ts.length > 19 ? ts.slice(0, 19).replace('T', ' ') : ts;
-        return `<tr>
-          <td><code style="font-size:11px">${b.id}</code></td>
-          <td style="font-size:12px;white-space:nowrap">${shortTS}</td>
-          <td>${originBadge}</td>
-          <td style="font-size:12px">${b.owner || '—'}</td>
-          <td>${verBadge}</td>
-          <td style="font-family:var(--mono);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dbFile}">${dbFile || '—'}</td>
-          <td>
-            <div class="row-actions">
-              ${dlBtn}
-              ${restoreBtn}
-              ${delBtn}
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
-
-      // Delete handlers
-      backupTbody.querySelectorAll('[data-del]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          if (!confirm('Permanently delete backup ' + btn.dataset.del + '?\nThis cannot be undone.')) return;
-          btn.disabled = true;
-          setActivityState('running', 'Running — deleting backup…');
-          try {
-            const r = await fetch('/tenants/' + tenant + '/backups/' + btn.dataset.del + '/delete', { method: 'POST' });
-            if (r.ok) {
-              append('Backup ' + btn.dataset.del + ' deleted.');
-              setActivityState('success', 'Success — backup deleted.');
-              loadBackups();
-            } else {
-              append('✖ Delete failed: ' + await r.text());
-              setActivityState('failure', 'Failed — backup could not be deleted.');
-              btn.disabled = false;
-            }
-          } catch (e) {
-            append('✖ Delete failed: ' + (e && e.message ? e.message : e));
-            setActivityState('failure', 'Failed — backup could not be deleted.');
-            btn.disabled = false;
-          }
-        });
-      });
-
-      // Restore handlers
-      backupTbody.querySelectorAll('[data-restore]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          pendingRestoreID = btn.dataset.restore;
-          document.getElementById('restore-modal-desc').textContent =
-            'Restore tenant "' + tenant + '" from backup: ' + pendingRestoreID;
-          restoreModal.style.display = 'flex';
-        });
-      });
+      backupItems = (data.backups || []).sort((a, b) =>
+        (b.created_at || b.timestamp || '').localeCompare(a.created_at || a.timestamp || ''));
+      renderBackups();
     } catch (e) {
-      backupTbody.innerHTML = `<tr><td colspan="7" class="empty-cell" style="color:var(--red)">Error loading backups: ${e.message}</td></tr>`;
+      showBackupMessage('Error loading backups: ' + e.message, true);
     }
   }
+
+  backupSearch?.addEventListener('input', renderBackups);
 
   // Create backup button
   document.getElementById('create-backup-btn').addEventListener('click', async () => {

@@ -114,6 +114,7 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		r.Post("/tenants/{name}/backup", s.handleTenantBackup)
 		r.Get("/tenants/{name}/backups", s.handleTenantBackupList)
 		r.Get("/tenants/{name}/backups/{id}/download", s.handleTenantBackupDownload)
+		r.Post("/tenants/{name}/backups/{id}/verify", s.handleTenantBackupVerify)
 		r.Post("/tenants/{name}/backups/{id}/delete", s.handleTenantBackupDelete)
 		r.Post("/tenants/{name}/backups/{id}/restore", s.handleTenantRestore)
 		r.Get("/tenants/{name}/accounting-export", s.handleAccountingExport)

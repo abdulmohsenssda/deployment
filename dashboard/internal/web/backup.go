@@ -278,6 +278,45 @@ func (s *server) handleTenantBackupDownload(w http.ResponseWriter, r *http.Reque
 	_ = scanner
 }
 
+// ── POST /tenants/{name}/backups/{id}/verify ─────────────────────────────────
+
+func (s *server) handleTenantBackupVerify(w http.ResponseWriter, r *http.Request) {
+	tenant := chi.URLParam(r, "name")
+	backupID := chi.URLParam(r, "id")
+	if !validAppName(tenant) || !validBackupID(backupID) {
+		http.Error(w, "invalid params", http.StatusBadRequest)
+		return
+	}
+
+	backupDir := s.cfg.BackupDir
+	metaPath := filepath.Join(backupDir, backupID+".meta.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		http.Error(w, "backup not found", http.StatusNotFound)
+		return
+	}
+	var m backupManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		http.Error(w, "invalid backup manifest", http.StatusInternalServerError)
+		return
+	}
+	if m.Tenant != "" && m.Tenant != tenant {
+		http.Error(w, "backup belongs to a different tenant", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	output, err := s.runScriptCapture(ctx, "manage-backups.sh", []string{"verify", backupID})
+	if err != nil {
+		http.Error(w, "verify failed: "+string(output), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write(output)
+}
+
 // ── POST /tenants/{name}/backups/{id}/delete ─────────────────────────────────
 
 func (s *server) handleTenantBackupDelete(w http.ResponseWriter, r *http.Request) {
