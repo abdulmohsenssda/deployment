@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -11,12 +11,15 @@ import (
 )
 
 type appSnapshot struct {
-	Apps       []dokku.App
-	Healthy    bool
-	UpdatedAt  time.Time
-	Duration   time.Duration
-	Refreshing bool
-	Error      string
+	Apps           []dokku.App
+	Healthy        bool
+	DokkuStatus    string
+	DokkuCheckedAt time.Time
+	DokkuError     string
+	UpdatedAt      time.Time
+	Duration       time.Duration
+	Refreshing     bool
+	Error          string
 }
 
 type snapshotCache struct {
@@ -31,7 +34,7 @@ type snapshotCache struct {
 
 func newSnapshotCache(interval time.Duration, refresh func(context.Context) appSnapshot) *snapshotCache {
 	return &snapshotCache{
-		snap:     appSnapshot{Refreshing: true},
+		snap:     appSnapshot{Refreshing: true, DokkuStatus: "checking"},
 		updated:  make(chan struct{}),
 		trigger:  make(chan struct{}, 1),
 		interval: interval,
@@ -132,27 +135,149 @@ func appsJSON(apps []dokku.App) string {
 }
 
 func snapshotJSON(s appSnapshot) string {
-	var b strings.Builder
-	b.WriteByte('{')
-	fmt.Fprintf(&b, `"healthy":%t,"refreshing":%t,"updated_at":%q,"duration_ms":%d,"error":%q,"apps":`,
-		s.Healthy, s.Refreshing, s.UpdatedAt.UTC().Format(time.RFC3339), s.Duration.Milliseconds(), s.Error)
-	writeAppsJSONArray(&b, s.Apps)
-	b.WriteString(`,"open":`)
-	writeFleetOpenJSON(&b, s.Apps)
-	b.WriteByte('}')
-	return b.String()
+	payload := snapshotAPI{
+		Healthy:        s.Healthy,
+		DokkuStatus:    s.DokkuStatus,
+		DokkuCheckedAt: apiTime(s.DokkuCheckedAt),
+		DokkuError:     s.DokkuError,
+		Refreshing:     s.Refreshing,
+		UpdatedAt:      s.UpdatedAt.UTC().Format(time.RFC3339),
+		DurationMS:     s.Duration.Milliseconds(),
+		Error:          s.Error,
+		Apps:           appAPIs(s.Apps),
+		Open:           fleetOpenStates(s.Apps),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return `{"apps":[]}`
+	}
+	return string(data)
 }
 
 func writeAppsJSONArray(b *strings.Builder, apps []dokku.App) {
-	b.WriteByte('[')
-	for i, a := range apps {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(b,
-			`{"name":%q,"role":%q,"tenant":%q,"state":%q,"image":%q,"version":%q,"http":%q,"int_port":%q,"host_ports":%q,"procs":%q,"domains":%q}`,
-			a.Name, a.Role, a.Tenant, a.State, a.Image, a.Version, a.HTTPCode, a.IntPort, a.HostPorts,
-			strings.Join(a.Procs, ","), strings.Join(a.Domains, ","))
+	data, err := json.Marshal(appAPIs(apps))
+	if err != nil {
+		b.WriteString("[]")
+		return
 	}
-	b.WriteByte(']')
+	b.Write(data)
+}
+
+type snapshotAPI struct {
+	Healthy        bool                      `json:"healthy"`
+	DokkuStatus    string                    `json:"dokku_status"`
+	DokkuCheckedAt string                    `json:"dokku_checked_at"`
+	DokkuError     string                    `json:"dokku_error"`
+	Refreshing     bool                      `json:"refreshing"`
+	UpdatedAt      string                    `json:"updated_at"`
+	DurationMS     int64                     `json:"duration_ms"`
+	Error          string                    `json:"error"`
+	Apps           []appAPI                  `json:"apps"`
+	Open           map[string]fleetOpenState `json:"open"`
+}
+
+type appAPI struct {
+	Name                   string   `json:"name"`
+	Role                   string   `json:"role"`
+	Tenant                 string   `json:"tenant"`
+	State                  string   `json:"state"`
+	LifecycleState         string   `json:"lifecycle_state"`
+	LifecycleError         string   `json:"lifecycle_error"`
+	Image                  string   `json:"image"`
+	Version                string   `json:"version"`
+	HTTPCode               string   `json:"http"`
+	ProbeStatus            string   `json:"probe_status"`
+	ProbeCheckedAt         string   `json:"probe_checked_at"`
+	ProbeError             string   `json:"probe_error"`
+	ProbeUnavailableReason string   `json:"probe_unavailable_reason"`
+	Probe                  probeAPI `json:"probe"`
+	IntPort                string   `json:"int_port"`
+	HostPorts              string   `json:"host_ports"`
+	Procs                  string   `json:"procs"`
+	Domains                string   `json:"domains"`
+}
+
+type probeAPI struct {
+	Status            string `json:"status"`
+	HTTPCode          string `json:"http_code"`
+	CheckedAt         string `json:"checked_at"`
+	Error             string `json:"error"`
+	UnavailableReason string `json:"unavailable_reason"`
+}
+
+func appAPIs(apps []dokku.App) []appAPI {
+	if len(apps) == 0 {
+		return []appAPI{}
+	}
+	out := make([]appAPI, 0, len(apps))
+	for _, app := range apps {
+		out = append(out, appAPIFrom(app))
+	}
+	return out
+}
+
+func appAPIFrom(app dokku.App) appAPI {
+	lifecycle := app.LifecycleState
+	if lifecycle == "" {
+		lifecycle = app.State
+	}
+	state := app.State
+	if state == "" {
+		state = lifecycle
+	}
+	probe := app.Probe
+	if probe.HTTPCode == "" {
+		probe.HTTPCode = app.HTTPCode
+	}
+	if probe.Status == "" {
+		probe.Status = legacyProbeStatus(lifecycle, probe.HTTPCode)
+	}
+	probe.Status = normalizeProbeStatus(probe.Status)
+	return appAPI{
+		Name:                   app.Name,
+		Role:                   app.Role,
+		Tenant:                 app.Tenant,
+		State:                  state,
+		LifecycleState:         lifecycle,
+		LifecycleError:         app.LifecycleError,
+		Image:                  app.Image,
+		Version:                app.Version,
+		HTTPCode:               probe.HTTPCode,
+		ProbeStatus:            probe.Status,
+		ProbeCheckedAt:         apiTime(probe.CheckedAt),
+		ProbeError:             probe.Error,
+		ProbeUnavailableReason: probe.UnavailableReason,
+		Probe: probeAPI{
+			Status:            probe.Status,
+			HTTPCode:          probe.HTTPCode,
+			CheckedAt:         apiTime(probe.CheckedAt),
+			Error:             probe.Error,
+			UnavailableReason: probe.UnavailableReason,
+		},
+		IntPort:   app.IntPort,
+		HostPorts: app.HostPorts,
+		Procs:     strings.Join(app.Procs, ","),
+		Domains:   strings.Join(app.Domains, ","),
+	}
+}
+
+func legacyProbeStatus(lifecycle, code string) string {
+	switch {
+	case strings.HasPrefix(code, "2"), strings.HasPrefix(code, "3"):
+		return dokku.ProbeStatusHealthy
+	case strings.HasPrefix(code, "4"), strings.HasPrefix(code, "5"):
+		return dokku.ProbeStatusHTTPError
+	case lifecycle == "not-deployed", lifecycle == "stopped", lifecycle == "exited",
+		lifecycle == "dead", lifecycle == "paused", lifecycle == "restarting":
+		return dokku.ProbeStatusUnavailable
+	default:
+		return dokku.ProbeStatusUnknown
+	}
+}
+
+func apiTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
 }

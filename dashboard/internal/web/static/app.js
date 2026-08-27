@@ -90,6 +90,36 @@
     return domains.map(d => String(d).trim()).filter(Boolean);
   }
 
+  function lifecycleOf(app) {
+    return app.lifecycle_state || app.state || 'unknown';
+  }
+
+  function appProbe(app) {
+    const nested = app.probe || {};
+    const code = nested.http_code || app.probe_http_code || app.http || '000';
+    const lifecycle = lifecycleOf(app);
+    let status = nested.status || app.probe_status || '';
+    if (status === 'http_error') status = 'http-error';
+    const error = nested.error || app.probe_error || '';
+    const unavailable = nested.unavailable_reason || app.probe_unavailable_reason || '';
+
+    if (!status) {
+      if (/^[23]\d\d$/.test(code)) status = 'healthy';
+      else if (/^[45]\d\d$/.test(code)) status = 'http-error';
+      else if (error) status = 'failed';
+      else if (['not-deployed', 'stopped', 'exited', 'dead', 'paused', 'restarting'].includes(lifecycle))
+        status = 'unavailable';
+      else status = 'unknown';
+    }
+    return {
+      status,
+      code,
+      checkedAt: nested.checked_at || app.probe_checked_at || '',
+      error,
+      unavailable
+    };
+  }
+
   function appsToTenants(apps, openStates = {}) {
     const map = new Map();
     for (const app of apps) {
@@ -103,7 +133,7 @@
     }
     const tenants = [];
     map.forEach(t => {
-      const states = t.apps.map(a => a.state);
+      const states = t.apps.map(lifecycleOf);
       // Derive aggregate state
       if (states.every(s => s === 'running'))       t.state = 'running';
       else if (states.some(s => s === 'running'))   t.state = 'mixed';
@@ -112,19 +142,16 @@
       else if (states.every(s => s === 'not-deployed' || s === 'missing' || !s)) t.state = 'not-deployed';
       else t.state = states[0] || 'unknown';
 
-      // Derive health from HTTP code of backend
+      // Keep probe health independent from the lifecycle state.
       const backend = t.apps.find(a => a.role === 'backend') || t.apps[0];
       const frontend = t.apps.find(a => a.role === 'frontend');
-      if (t.state === 'running') {
-        const code = parseInt(backend?.http || '0', 10);
-        if (code >= 200 && code < 400) t.health = 'healthy';
-        else if (code === 0)           t.health = 'unknown';
-        else                           t.health = 'unhealthy';
-      } else if (t.state === 'not-deployed') {
-        t.health = 'not-deployed';
-      } else {
-        t.health = t.state;
-      }
+      const probe = appProbe(backend || {});
+      t.health = probe.status;
+      t.healthCode = probe.code;
+      t.healthAt = probe.checkedAt;
+      t.healthError = probe.error;
+      t.healthUnavailable = probe.unavailable;
+      t.stateError = backend?.lifecycle_error || '';
 
       // Version from backend image tag
       t.version = backend?.version || '';
@@ -153,9 +180,28 @@
   }
   function healthBadgeClass(h) {
     if (h === 'healthy')    return 'badge-success';
-    if (h === 'unhealthy')  return 'badge-danger';
-    if (h === 'not-deployed') return 'badge-neutral';
+    if (h === 'http-error' || h === 'unhealthy' || h === 'failed') return 'badge-danger';
+    if (h === 'unavailable') return 'badge-neutral';
     return 'badge-warn';
+  }
+  function healthLabel(t) {
+    if (t.health === 'healthy') return 'Healthy';
+    if (t.health === 'http-error' && t.healthCode && t.healthCode !== '000') return 'HTTP ' + t.healthCode;
+    if (t.health === 'failed') return 'Probe failed';
+    if (t.health === 'unavailable') return 'Unavailable';
+    if (t.health === 'unhealthy') return 'Unhealthy';
+    return 'Unknown';
+  }
+  function healthDetail(t) {
+    const parts = [];
+    if (t.healthError) parts.push(t.healthError);
+    else if (t.healthUnavailable) parts.push(t.healthUnavailable);
+    else if (t.health === 'http-error' && t.healthCode) parts.push('Endpoint returned HTTP ' + t.healthCode);
+    else if (t.health === 'healthy' && t.healthCode) parts.push('HTTP ' + t.healthCode);
+    else if (t.health === 'unknown') parts.push('No probe result is available');
+    if (t.healthCode && ['failed', 'unavailable', 'unknown'].includes(t.health)) parts.push('HTTP ' + t.healthCode);
+    parts.push(t.healthAt ? 'Checked ' + formatTimestamp(t.healthAt) : 'Not checked');
+    return parts.join(' · ');
   }
   function stateBadgeClass(s) {
     if (s === 'running')    return 'badge-success';
@@ -173,6 +219,7 @@
   const sDegEl   = document.getElementById('s-degraded');
   const sStopEl  = document.getElementById('s-stopped');
   const pulseEl  = document.getElementById('pulse');
+  const snapshotMetaEl = document.getElementById('snapshot-meta');
   let filterVal  = '';
   let allTenants = [];
   let currentOpenStates = {};
@@ -223,10 +270,22 @@
     if (domainEl) domainEl.textContent = t.domain || '';
 
     const healthB = row.querySelector('.js-health-badge');
-    if (healthB) { healthB.textContent = t.health || '—'; healthB.className = 'badge ' + healthBadgeClass(t.health); }
+    if (healthB) {
+      healthB.textContent = healthLabel(t);
+      healthB.className = 'badge ' + healthBadgeClass(t.health);
+      healthB.title = healthDetail(t);
+    }
+    const healthDetailEl = row.querySelector('.js-health-detail');
+    if (healthDetailEl) healthDetailEl.textContent = healthDetail(t);
 
     const stateB = row.querySelector('.js-state-badge');
-    if (stateB) { stateB.textContent = t.state || '—'; stateB.className = 'badge ' + stateBadgeClass(t.state); }
+    if (stateB) {
+      stateB.textContent = t.state || 'Unknown';
+      stateB.className = 'badge ' + stateBadgeClass(t.state);
+      stateB.title = 'Lifecycle state: ' + (t.state || 'unknown') + (t.stateError ? ' — ' + t.stateError : '');
+    }
+    const stateDetailEl = row.querySelector('.js-state-detail');
+    if (stateDetailEl) stateDetailEl.textContent = t.stateError || 'Lifecycle';
 
     const verEl = row.querySelector('.js-version');
     if (verEl) verEl.textContent = t.version || '—';
@@ -481,6 +540,25 @@
   });
 
   // ── SSE stream ────────────────────────────────────────────
+  function formatTimestamp(value) {
+    if (!value) return '';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  }
+
+  function updateSnapshotMeta(data) {
+    if (!snapshotMetaEl) return;
+    if (data.refreshing) {
+      snapshotMetaEl.textContent = 'Refreshing health snapshot…';
+      return;
+    }
+    const parts = [];
+    if (data.error) parts.push('Snapshot unavailable: ' + data.error);
+    else if (data.updated_at) parts.push('Last checked ' + formatTimestamp(data.updated_at));
+    if (data.dokku_error) parts.push('Dokku: ' + data.dokku_error);
+    snapshotMetaEl.textContent = parts.join(' · ') || 'Health snapshot unavailable';
+  }
+
   function bootstrapFleet() {
     const el = document.getElementById('fleet-bootstrap');
     if (!el) return;
@@ -493,6 +571,7 @@
       palTenants = allTenants;
       renderTable(allTenants);
       updateSummary(allTenants);
+      updateSnapshotMeta(data);
     } catch (_) {}
   }
 
@@ -510,13 +589,18 @@
         palTenants = allTenants;
         renderTable(allTenants);
         updateSummary(allTenants);
+        updateSnapshotMeta(data);
 
         // Dokku health pill
         const pill = document.getElementById('dokku-pill');
         if (pill) {
           const st = pill.querySelector('.dokku-status');
-          if (st) st.textContent = data.healthy ? 'up' : 'down';
-          pill.style.color = data.healthy ? 'var(--green)' : 'var(--red)';
+          const dokkuStatus = data.dokku_status || (data.healthy ? 'up' : 'down');
+          if (st) st.textContent = dokkuStatus;
+          pill.style.color = dokkuStatus === 'up'
+            ? 'var(--green)'
+            : dokkuStatus === 'down' ? 'var(--red)' : 'var(--amber)';
+          pill.title = data.dokku_error || ('Dokku status: ' + dokkuStatus);
         }
 
         if (pulseEl) {

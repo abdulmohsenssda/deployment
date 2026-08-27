@@ -348,6 +348,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .status-count.stopped { color: var(--red); }
 .dokku-pill { font-size: 11px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 2px 8px; color: var(--text-muted); }
 .dokku-pill .dokku-status { color: var(--text-dim); }
+.snapshot-meta { font-size: 11px; color: var(--text-dim); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; opacity: 0; transition: opacity .3s; }
 .live-dot.active { opacity: 1; animation: pulse-dot 2s ease-in-out infinite; }
 @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
@@ -403,7 +404,7 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .col-status  { width: 28px; padding-right: 0 !important; }
 .col-name    { min-width: 150px; }
-.col-health  { width: 110px; }
+.col-health  { width: 240px; }
 .col-state   { width: 120px; }
 .col-version { width: 180px; }
 .col-apps    { width: 140px; }
@@ -413,6 +414,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .fw-medium   { font-weight: 500; color: var(--accent-h); }
 .fw-medium:hover { text-decoration: underline; }
 .row-sub     { font-size: 11px; color: var(--text-dim); margin-top: 1px; }
+.col-health .row-sub { display: block; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-mono    { font-family: var(--mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; display: block; }
 
 .row-actions { display: flex; align-items: center; gap: 4px; }

@@ -7,6 +7,7 @@ package dokku
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -20,8 +21,9 @@ import (
 
 // Client is a thin wrapper around the docker + dokku CLIs.
 type Client struct {
-	dockerBin string
-	dokkuName string
+	dockerBin    string
+	dokkuName    string
+	probeCommand func(context.Context, ...string) (string, string, error)
 }
 
 // New returns a client. dockerBin is the docker executable on the host
@@ -33,26 +35,48 @@ func New(dockerBin, dokkuName string) *Client {
 
 // App is a single Dokku app with the data needed to render the list page.
 type App struct {
-	Name        string
-	Role        string // backend / frontend / app
-	Tenant      string
-	State       string // running / stopped / not-deployed / restarting / mixed / unknown
-	Image       string
-	Version     string
-	RestartCnt  string
-	Procs       []string
-	IntPort     string
-	HostPorts   string
-	Domains     []string
-	HTTPCode    string
-	ContainerID string
+	Name           string
+	Role           string // backend / frontend / app
+	Tenant         string
+	State          string // running / stopped / not-deployed / restarting / mixed / unknown
+	LifecycleState string
+	LifecycleError string
+	Image          string
+	Version        string
+	RestartCnt     string
+	Procs          []string
+	IntPort        string
+	HostPorts      string
+	Domains        []string
+	HTTPCode       string // Deprecated compatibility alias for Probe.HTTPCode.
+	Probe          HealthProbe
+	ContainerID    string
 }
+
+// HealthProbe describes the latest application HTTP probe independently from
+// the app's lifecycle state.
+type HealthProbe struct {
+	Status            string // healthy / http-error / failed / unavailable / unknown
+	HTTPCode          string
+	CheckedAt         time.Time
+	Error             string
+	UnavailableReason string
+}
+
+const (
+	ProbeStatusHealthy     = "healthy"
+	ProbeStatusHTTPError   = "http-error"
+	ProbeStatusFailed      = "failed"
+	ProbeStatusUnavailable = "unavailable"
+	ProbeStatusUnknown     = "unknown"
+)
 
 type containerSummary struct {
 	State      string
 	Image      string
 	Version    string
 	RestartCnt string
+	Error      string
 }
 
 var nameLine = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -73,15 +97,23 @@ func (c *Client) AppsList(ctx context.Context) ([]string, error) {
 	return apps, nil
 }
 
-// AppSummary is optimized for the dashboard grid. It avoids expensive per-app
-// Dokku reports and uses Docker metadata plus domains, which keeps large tenant
-// lists responsive.
+// AppSummary is optimized for the dashboard grid. It uses Docker metadata,
+// domains, and one bounded HTTP probe per app so large tenant lists remain
+// responsive when collected by the dashboard worker pool.
 func (c *Client) AppSummary(ctx context.Context, name string) App {
 	return c.AppSummaryFrom(ctx, name, c.ContainerIDsByApp(ctx)[name], c.DomainMap(ctx)[name])
 }
 
 func (c *Client) AppSummaryFrom(ctx context.Context, name, containerID string, domains []string) App {
-	app := App{Name: name, Role: roleOf(name), Tenant: tenantOf(name), HTTPCode: "000", Domains: domains}
+	app := App{
+		Name:           name,
+		Role:           roleOf(name),
+		Tenant:         tenantOf(name),
+		HTTPCode:       "000",
+		LifecycleState: "not-deployed",
+		Probe:          unavailableProbe("no container is available"),
+		Domains:        domains,
+	}
 	app.ContainerID = containerID
 	if app.ContainerID == "" {
 		app.State = "not-deployed"
@@ -98,17 +130,24 @@ func (c *Client) AppSummaryFrom(ctx context.Context, name, containerID string, d
 	default:
 		app.State = container.State
 	}
+	app.LifecycleState = app.State
+	app.LifecycleError = container.Error
 	app.Image = container.Image
 	app.Version = container.Version
 	if app.Version == "" {
 		app.Version = imageTag(app.Image)
 	}
 	app.RestartCnt = container.RestartCnt
+	app.Probe = c.appProbe(ctx, name, app.Role, app.State)
+	if app.Probe.Status == ProbeStatusUnknown && app.LifecycleError != "" {
+		app.Probe.Error = app.LifecycleError
+	}
+	app.HTTPCode = app.Probe.HTTPCode
 	return app
 }
 
 func (c *Client) containerSummary(ctx context.Context, cid string) containerSummary {
-	out, _ := c.exec(ctx, c.dockerBin, "inspect", "-f", `{{.State.Status}}
+	out, err := c.exec(ctx, c.dockerBin, "inspect", "-f", `{{.State.Status}}
 {{.Config.Image}}
 {{.RestartCount}}
 {{range .Config.Env}}{{println .}}{{end}}`, cid)
@@ -129,6 +168,9 @@ func (c *Client) containerSummary(ctx context.Context, cid string) containerSumm
 			summary.Version = strings.TrimPrefix(line, "APP_IMAGE_VERSION=")
 			break
 		}
+	}
+	if err != nil {
+		summary.Error = err.Error()
 	}
 	return summary
 }
@@ -181,7 +223,8 @@ done`
 func (c *Client) AppDetails(ctx context.Context, name string) App {
 	a := App{Name: name, Role: roleOf(name), Tenant: tenantOf(name)}
 	a.ContainerID = c.containerID(ctx, name)
-	a.State = c.appState(ctx, name, a.ContainerID)
+	a.State, a.LifecycleError = c.appStateResult(ctx, name, a.ContainerID)
+	a.LifecycleState = a.State
 	if a.ContainerID != "" {
 		a.Image = c.inspectField(ctx, a.ContainerID, "{{.Config.Image}}")
 		a.Version = c.envField(ctx, a.ContainerID, "APP_IMAGE_VERSION")
@@ -194,15 +237,15 @@ func (c *Client) AppDetails(ctx context.Context, name string) App {
 	a.IntPort = c.intPort(ctx, name)
 	a.Procs = c.procTypes(ctx, name)
 	a.Domains = c.domains(ctx, name)
-	if a.ContainerID != "" {
-		path := "/"
-		if a.Role == "backend" {
-			path = "/healthz"
-		}
-		a.HTTPCode = c.httpProbe(ctx, name, path)
+	if a.ContainerID == "" && a.State == "running" {
+		a.Probe = unavailableProbe("lifecycle reports running but no container was found")
 	} else {
-		a.HTTPCode = "000"
+		a.Probe = c.appProbe(ctx, name, a.Role, a.State)
 	}
+	if a.Probe.Status == ProbeStatusUnknown && a.LifecycleError != "" {
+		a.Probe.Error = a.LifecycleError
+	}
+	a.HTTPCode = a.Probe.HTTPCode
 	return a
 }
 
@@ -237,14 +280,25 @@ func (c *Client) containerID(ctx context.Context, app string) string {
 }
 
 func (c *Client) appState(ctx context.Context, app, cid string) string {
+	state, _ := c.appStateResult(ctx, app, cid)
+	return state
+}
+
+func (c *Client) appStateResult(ctx context.Context, app, cid string) (string, string) {
 	report, err := c.dokku(ctx, "ps:report", app)
 	if err != nil {
-		return "unknown"
+		return "unknown", commandError(report, err)
 	}
 	deployed := fieldFromReport(report, "Deployed:")
 	running := fieldFromReport(report, "Running:")
+	if deployed == "" {
+		return "unknown", "Dokku did not report a deployment state"
+	}
 	if !strings.EqualFold(deployed, "true") {
-		return "not-deployed"
+		return "not-deployed", ""
+	}
+	if running == "" {
+		return "unknown", "Dokku did not report a running state"
 	}
 	state := "unknown"
 	switch strings.ToLower(running) {
@@ -256,18 +310,29 @@ func (c *Client) appState(ctx context.Context, app, cid string) string {
 		state = "mixed"
 	}
 	if cid != "" {
-		cs := c.inspectField(ctx, cid, "{{.State.Status}}")
+		cs, inspectErr := c.inspectFieldResult(ctx, cid, "{{.State.Status}}")
+		if inspectErr != nil {
+			return "unknown", commandError(cs, inspectErr)
+		}
 		switch cs {
 		case "restarting", "exited", "dead", "paused":
 			state = cs
 		}
 	}
-	return state
+	if state == "unknown" {
+		return state, "Dokku did not report a known lifecycle state"
+	}
+	return state, ""
 }
 
 func (c *Client) inspectField(ctx context.Context, cid, tmpl string) string {
-	out, _ := c.exec(ctx, c.dockerBin, "inspect", "-f", tmpl, cid)
+	out, _ := c.inspectFieldResult(ctx, cid, tmpl)
 	return strings.TrimSpace(out)
+}
+
+func (c *Client) inspectFieldResult(ctx context.Context, cid, tmpl string) (string, error) {
+	out, err := c.exec(ctx, c.dockerBin, "inspect", "-f", tmpl, cid)
+	return strings.TrimSpace(out), err
 }
 
 func (c *Client) hostPorts(ctx context.Context, cid string) string {
@@ -350,14 +415,135 @@ func (c *Client) domains(ctx context.Context, app string) []string {
 	return strings.Fields(out)
 }
 
-func (c *Client) httpProbe(ctx context.Context, app, path string) string {
-	out, _ := c.exec(ctx, c.dockerBin, "exec", "-i", c.dokkuName, "bash", "-lc",
-		fmt.Sprintf(`curl -sS -o /dev/null -w '%%{http_code}' --max-time 5 http://%s.web%s`, app, path))
-	out = strings.TrimSpace(out)
-	if out == "" {
-		return "000"
+func (c *Client) appProbe(ctx context.Context, app, role, state string) HealthProbe {
+	switch state {
+	case "running":
+		path := "/"
+		if role == "backend" {
+			path = "/healthz"
+		}
+		return c.httpProbeResult(ctx, app, path)
+	case "unknown", "":
+		return unknownProbe("lifecycle state is unknown; probe was not attempted")
+	default:
+		return unavailableProbe("probe not attempted because lifecycle state is " + state)
 	}
-	return out
+}
+
+// httpProbe is retained as a compatibility helper for callers that only need
+// the legacy HTTP code.
+func (c *Client) httpProbe(ctx context.Context, app, path string) string {
+	return c.httpProbeResult(ctx, app, path).HTTPCode
+}
+
+func (c *Client) httpProbeResult(ctx context.Context, app, path string) HealthProbe {
+	checkedAt := time.Now().UTC()
+	probeCtx, cancel := context.WithTimeout(ctx, 7*time.Second)
+	defer cancel()
+
+	args := []string{"exec", "-i", c.dokkuName, "bash", "-lc",
+		fmt.Sprintf(`curl -sS -o /dev/null -w '%%{http_code}' --max-time 5 http://%s.web%s`, app, path)}
+	stdoutText, stderrText, err := c.runProbeCommand(probeCtx, args...)
+
+	code := normalizeHTTPCode(stdoutText)
+	if err != nil {
+		code = "000"
+		message := strings.TrimSpace(stderrText)
+		if message == "" {
+			message = commandError("", err)
+		}
+		if message == "" {
+			message = "probe command failed"
+		}
+		return HealthProbe{
+			Status:    ProbeStatusFailed,
+			HTTPCode:  code,
+			CheckedAt: checkedAt,
+			Error:     message,
+		}
+	}
+	if code == "000" {
+		message := strings.TrimSpace(stderrText)
+		if message == "" {
+			message = "probe returned HTTP 000"
+		}
+		return HealthProbe{
+			Status:    ProbeStatusFailed,
+			HTTPCode:  code,
+			CheckedAt: checkedAt,
+			Error:     message,
+		}
+	}
+	return HealthProbe{
+		Status:    probeStatusForHTTPCode(code),
+		HTTPCode:  code,
+		CheckedAt: checkedAt,
+	}
+}
+
+func (c *Client) runProbeCommand(ctx context.Context, args ...string) (string, string, error) {
+	if c.probeCommand != nil {
+		return c.probeCommand(ctx, args...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, c.dockerBin, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
+
+func probeStatusForHTTPCode(code string) string {
+	if !isHTTPCode(code) || code == "000" {
+		return ProbeStatusUnknown
+	}
+	if code[0] == '2' || code[0] == '3' {
+		return ProbeStatusHealthy
+	}
+	return ProbeStatusHTTPError
+}
+
+func normalizeHTTPCode(out string) string {
+	out = strings.TrimSpace(out)
+	if isHTTPCode(out) {
+		return out
+	}
+	for _, field := range strings.Fields(out) {
+		if isHTTPCode(field) {
+			return field
+		}
+	}
+	return "000"
+}
+
+func isHTTPCode(code string) bool {
+	if len(code) != 3 {
+		return false
+	}
+	for i := range code {
+		if code[i] < '0' || code[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func unavailableProbe(reason string) HealthProbe {
+	return HealthProbe{
+		Status:            ProbeStatusUnavailable,
+		HTTPCode:          "000",
+		CheckedAt:         time.Now().UTC(),
+		UnavailableReason: reason,
+	}
+}
+
+func unknownProbe(reason string) HealthProbe {
+	return HealthProbe{
+		Status:    ProbeStatusUnknown,
+		HTTPCode:  "000",
+		CheckedAt: time.Now().UTC(),
+		Error:     reason,
+	}
 }
 
 // Action runs a Dokku lifecycle action against an app.
@@ -405,13 +591,27 @@ func (c *Client) StreamLogs(ctx context.Context, app string, w io.Writer, onLine
 	return scanner.Err()
 }
 
-// DokkuContainerHealthy returns true when the dokku container is running.
-func (c *Client) DokkuContainerHealthy(ctx context.Context) bool {
+// DokkuContainerStatus returns up, down, or unavailable and keeps command
+// failures separate from a confirmed non-running Dokku container.
+func (c *Client) DokkuContainerStatus(ctx context.Context) (string, error) {
 	out, err := c.exec(ctx, c.dockerBin, "inspect", "-f", "{{.State.Status}}", c.dokkuName)
 	if err != nil {
-		return false
+		return "unavailable", fmt.Errorf("%s", commandError(out, err))
 	}
-	return strings.TrimSpace(out) == "running"
+	switch strings.TrimSpace(out) {
+	case "running":
+		return "up", nil
+	case "":
+		return "unavailable", fmt.Errorf("Dokku container status was empty")
+	default:
+		return "down", nil
+	}
+}
+
+// DokkuContainerHealthy returns true when the dokku container is running.
+func (c *Client) DokkuContainerHealthy(ctx context.Context) bool {
+	status, _ := c.DokkuContainerStatus(ctx)
+	return status == "up"
 }
 
 func (c *Client) dokku(ctx context.Context, args ...string) (string, error) {
@@ -424,6 +624,16 @@ func (c *Client) exec(ctx context.Context, name string, args ...string) (string,
 	defer cancel()
 	out, err := exec.CommandContext(cctx, name, args...).CombinedOutput()
 	return string(out), err
+}
+
+func commandError(output string, err error) string {
+	if message := strings.TrimSpace(output); message != "" {
+		return message
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // Helpers ---------------------------------------------------------------------

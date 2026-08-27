@@ -97,6 +97,15 @@ DASHBOARD_LOCAL_DOKKU_PERF=1 go test ./internal/web -run TestLocalDokkuSnapshotT
 
 The dashboard grid uses cached snapshots and a bounded parallel summary collector. Increase `DASHBOARD_SNAPSHOT_WORKERS` only if the host can handle more concurrent Docker inspect work.
 
+Health data keeps lifecycle state separate from the HTTP probe. The legacy
+`state` and `http` app fields remain available; new API/SSE fields include
+`lifecycle_state`, `probe.status`, `probe.http_code`, `probe.checked_at`,
+`probe.error`, and `probe.unavailable_reason`. HTTP `404` is an HTTP result,
+while HTTP `000` is shown with the probe failure or unavailable reason rather
+than being treated as a lifecycle state. Snapshot events also expose
+`dokku_status`, `dokku_checked_at`, and `dokku_error`; the legacy `healthy`
+boolean remains available.
+
 Generate a password hash:
 
 ```sh

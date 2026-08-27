@@ -8,7 +8,8 @@
     <span class="page-subtitle">{{.Role}} · tenant <code>{{.Tenant}}</code></span>
   </div>
   <div class="page-header-right">
-    <span class="badge {{stateClr .State}} badge-lg">{{.State}}</span>
+    <span class="badge {{stateClr .State}} badge-lg" title="Lifecycle state">Lifecycle: {{.State}}</span>
+    <span class="badge {{probeClr .Probe.Status}} badge-lg" title="{{probeMessage .Probe}}">Health: {{probeLabel .Probe}}</span>
     {{if and .Domains (eq .State "running")}}
     <a href="http://{{index .Domains 0}}" target="_blank" rel="noopener" class="btn btn-secondary">Open ↗</a>
     {{end}}
@@ -22,8 +23,11 @@
     <div class="rc-image" title="{{.Image}}">{{or .Image "—"}}</div>
   </div>
   <div class="resource-card">
-    <div class="rc-label">HTTP</div>
-    <div class="rc-value">{{.HTTPCode}}</div>
+    <div class="rc-label">HTTP probe</div>
+    <div class="rc-value">{{probeLabel .Probe}}</div>
+    <div class="rc-meta">HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
+    <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
+    <div class="rc-meta">{{probeMessage .Probe}}</div>
   </div>
   <div class="resource-card">
     <div class="rc-label">Internal port</div>

@@ -31,11 +31,12 @@
       <span class="status-count running" id="s-running" style="display:none"></span>
       <span class="status-count degraded" id="s-degraded" style="display:none"></span>
       <span class="status-count stopped" id="s-stopped" style="display:none"></span>
-      <span id="dokku-pill" class="dokku-pill">Dokku <span class="dokku-status">…</span></span>
+      <span id="dokku-pill" class="dokku-pill" title="Dokku health is not available yet">Dokku <span class="dokku-status">…</span></span>
     </div>
     <div class="panel-toolbar-right fleet-filter-controls">
       <input id="filter" type="search" placeholder="Filter tenants…" class="search-input"
              autocomplete="off" aria-label="Filter tenants">
+      <span id="snapshot-meta" class="snapshot-meta" role="status" aria-live="polite">Waiting for health snapshot…</span>
       <span id="pulse" class="live-dot" title="Live updates" role="status" aria-label="Live updates"></span>
     </div>
   </div>
@@ -71,8 +72,14 @@
         <span class="js-domain row-sub"></span>
       </a>
     </td>
-    <td class="col-health" data-label="Health"><span class="badge js-health-badge"></span></td>
-    <td class="col-state" data-label="State"><span class="badge js-state-badge"></span></td>
+    <td class="col-health" data-label="Health">
+      <span class="badge js-health-badge"></span>
+      <span class="row-sub js-health-detail"></span>
+    </td>
+    <td class="col-state" data-label="State">
+      <span class="badge js-state-badge"></span>
+      <span class="row-sub js-state-detail">Lifecycle</span>
+    </td>
     <td class="col-version" data-label="Version"><code class="js-version row-mono"></code></td>
     <td class="col-apps" data-label="Apps"><span class="js-apps row-sub"></span></td>
     <td class="col-actions">

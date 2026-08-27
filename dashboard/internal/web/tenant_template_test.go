@@ -12,11 +12,16 @@ func renderTenantTemplateForTest(t *testing.T) string {
 	t.Helper()
 
 	funcs := template.FuncMap{
-		"join":     strings.Join,
-		"now":      func() string { return time.Now().Format("2006-01-02 15:04:05") },
-		"stateClr": stateClass,
-		"httpClr":  httpClass,
-		"json":     templateJSON,
+		"join":         strings.Join,
+		"now":          func() string { return time.Now().Format("2006-01-02 15:04:05") },
+		"stateClr":     stateClass,
+		"httpClr":      httpClass,
+		"probeClr":     probeClass,
+		"probeLabel":   probeLabel,
+		"probeMessage": probeMessage,
+		"probeTime":    probeTime,
+		"json":         templateJSON,
+		"appDetailURL": appDetailURL,
 	}
 	page, err := template.New("").Funcs(funcs).ParseFS(
 		tplFS,

@@ -3,6 +3,7 @@ package dokku
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -52,4 +53,78 @@ type flushBuffer struct {
 
 func (b *flushBuffer) Flush() {
 	b.flushes++
+}
+
+func TestProbeStatusForHTTPCode(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{name: "success", code: "200", want: ProbeStatusHealthy},
+		{name: "redirect", code: "302", want: ProbeStatusHealthy},
+		{name: "not found", code: "404", want: ProbeStatusHTTPError},
+		{name: "server error", code: "500", want: ProbeStatusHTTPError},
+		{name: "transport sentinel", code: "000", want: ProbeStatusUnknown},
+		{name: "invalid", code: "bad", want: ProbeStatusUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := probeStatusForHTTPCode(test.code); got != test.want {
+				t.Fatalf("probeStatusForHTTPCode(%q) = %q, want %q", test.code, got, test.want)
+			}
+		})
+	}
+}
+
+func TestAppSummaryWithoutContainerIsExplicitlyUnavailable(t *testing.T) {
+	app := New("docker-that-is-not-called", "dokku").AppSummaryFrom(
+		context.Background(),
+		"acme-backend",
+		"",
+		nil,
+	)
+
+	if app.State != "not-deployed" || app.LifecycleState != "not-deployed" {
+		t.Fatalf("lifecycle = %q/%q, want not-deployed", app.State, app.LifecycleState)
+	}
+	if app.HTTPCode != "000" || app.Probe.HTTPCode != "000" {
+		t.Fatalf("HTTP code = %q/%q, want 000", app.HTTPCode, app.Probe.HTTPCode)
+	}
+	if app.Probe.Status != ProbeStatusUnavailable {
+		t.Fatalf("probe status = %q, want %q", app.Probe.Status, ProbeStatusUnavailable)
+	}
+	if app.Probe.UnavailableReason == "" || app.Probe.CheckedAt.IsZero() {
+		t.Fatalf("probe should include an unavailable reason and timestamp: %+v", app.Probe)
+	}
+}
+
+func TestHTTPProbeSeparatesHTTPErrorAndCommandFailure(t *testing.T) {
+	t.Run("404 is an HTTP result", func(t *testing.T) {
+		client := New("fixture", "dokku")
+		client.probeCommand = func(_ context.Context, _ ...string) (string, string, error) {
+			return "404", "", nil
+		}
+		probe := client.httpProbeResult(context.Background(), "acme-backend", "/healthz")
+		if probe.Status != ProbeStatusHTTPError || probe.HTTPCode != "404" {
+			t.Fatalf("probe = %+v, want HTTP 404 result", probe)
+		}
+		if probe.Error != "" || probe.UnavailableReason != "" {
+			t.Fatalf("HTTP result should not be reported as command failure: %+v", probe)
+		}
+	})
+
+	t.Run("000 includes command error", func(t *testing.T) {
+		client := New("fixture", "dokku")
+		client.probeCommand = func(_ context.Context, _ ...string) (string, string, error) {
+			return "000", "curl: connection refused", errors.New("exit status 1")
+		}
+		probe := client.httpProbeResult(context.Background(), "acme-backend", "/healthz")
+		if probe.Status != ProbeStatusFailed || probe.HTTPCode != "000" {
+			t.Fatalf("probe = %+v, want failed HTTP 000 result", probe)
+		}
+		if probe.Error == "" || probe.CheckedAt.IsZero() {
+			t.Fatalf("failed probe should include error and timestamp: %+v", probe)
+		}
+	})
 }

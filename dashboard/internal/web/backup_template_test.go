@@ -24,10 +24,10 @@ func TestTenantBackupTemplateKeepsHistoryControlsReachable(t *testing.T) {
 		`data-label="Backup ID"`,
 		`data-label="Verified"`,
 		`data-label="Actions"`,
-		`data-verify="${b.id}"`,
-		`data-restore="${b.id}"`,
+		`data-verify="`,
+		`data-restore="`,
 		`/download"`,
-		`data-del="${b.id}"`,
+		`data-del="`,
 		`confirm('Permanently delete backup`,
 		`id="restore-modal"`,
 	} {

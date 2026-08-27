@@ -134,6 +134,10 @@ func templateFuncs() template.FuncMap {
 		"now":          func() string { return time.Now().Format("2006-01-02 15:04:05") },
 		"stateClr":     stateClass,
 		"httpClr":      httpClass,
+		"probeClr":     probeClass,
+		"probeLabel":   probeLabel,
+		"probeMessage": probeMessage,
+		"probeTime":    probeTime,
 		"json":         templateJSON,
 		"appDetailURL": appDetailURL,
 	}
@@ -267,6 +271,10 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		"Apps":           snap.Apps,
 		"FleetBootstrap": template.JS(marshalFleetBootstrap(snap.Apps)),
 		"Healthy":        snap.Healthy,
+		"DokkuStatus":    snap.DokkuStatus,
+		"DokkuCheckedAt": snap.DokkuCheckedAt,
+		"DokkuError":     snap.DokkuError,
+		"SnapshotError":  snap.Error,
 		"UpdatedAt":      snap.UpdatedAt,
 		"Refreshing":     snap.Refreshing,
 	}
@@ -1219,12 +1227,18 @@ func (s *server) collectSnapshot(ctx context.Context) appSnapshot {
 	}
 	out := collectAppDetails(ctx, names, snapshotWorkerLimit(len(names)), detail)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	dokkuStatus, dokkuErr := s.dokku.DokkuContainerStatus(ctx)
 	snap := appSnapshot{
-		Apps:    out,
-		Healthy: s.dokku.DokkuContainerHealthy(ctx),
+		Apps:           out,
+		Healthy:        dokkuStatus == "up",
+		DokkuStatus:    dokkuStatus,
+		DokkuCheckedAt: time.Now().UTC(),
 	}
 	if err != nil {
 		snap.Error = err.Error()
+	}
+	if dokkuErr != nil {
+		snap.DokkuError = dokkuErr.Error()
 	}
 	return snap
 }
@@ -1489,4 +1503,86 @@ func httpClass(code string) string {
 	default:
 		return "text-amber-400"
 	}
+}
+
+func probeClass(status string) string {
+	status = normalizeProbeStatus(status)
+	switch status {
+	case dokku.ProbeStatusHealthy:
+		return "bg-emerald-500/15 text-emerald-400 ring-emerald-500/30"
+	case dokku.ProbeStatusHTTPError, dokku.ProbeStatusFailed:
+		return "bg-rose-500/15 text-rose-400 ring-rose-500/30"
+	case dokku.ProbeStatusUnavailable:
+		return "bg-zinc-700/40 text-zinc-300 ring-zinc-500/30"
+	default:
+		return "bg-amber-500/15 text-amber-400 ring-amber-500/30"
+	}
+}
+
+func probeLabel(probe dokku.HealthProbe) string {
+	status := normalizeProbeStatus(probe.Status)
+	if status == "" {
+		status = legacyProbeStatus("", probe.HTTPCode)
+	}
+	switch status {
+	case dokku.ProbeStatusHealthy:
+		return "Healthy"
+	case dokku.ProbeStatusHTTPError:
+		if probe.HTTPCode != "" && probe.HTTPCode != "000" {
+			return "HTTP " + probe.HTTPCode
+		}
+		return "HTTP error"
+	case dokku.ProbeStatusFailed:
+		return "Probe failed"
+	case dokku.ProbeStatusUnavailable:
+		return "Unavailable"
+	default:
+		return "Unknown"
+	}
+}
+
+func probeMessage(probe dokku.HealthProbe) string {
+	status := normalizeProbeStatus(probe.Status)
+	if status == "" {
+		status = legacyProbeStatus("", probe.HTTPCode)
+	}
+	if probe.Error != "" {
+		return probe.Error
+	}
+	if probe.UnavailableReason != "" {
+		return probe.UnavailableReason
+	}
+	switch status {
+	case dokku.ProbeStatusHealthy:
+		if probe.HTTPCode != "" {
+			return "HTTP " + probe.HTTPCode
+		}
+	case dokku.ProbeStatusHTTPError:
+		if probe.HTTPCode != "" {
+			return "Endpoint returned HTTP " + probe.HTTPCode
+		}
+	case dokku.ProbeStatusFailed:
+		if probe.HTTPCode != "" {
+			return "Probe failed with HTTP " + probe.HTTPCode
+		}
+	case dokku.ProbeStatusUnavailable:
+		return "No probe was attempted"
+	default:
+		return "No probe result is available"
+	}
+	return ""
+}
+
+func probeTime(value time.Time) string {
+	if value.IsZero() {
+		return "Not checked"
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func normalizeProbeStatus(status string) string {
+	if status == "http_error" {
+		return dokku.ProbeStatusHTTPError
+	}
+	return status
 }
