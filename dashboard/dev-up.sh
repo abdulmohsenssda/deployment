@@ -15,6 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.dev.yml"
 IMAGE="ssdawweq/dokku-dashboard:dev"
 
+# Compose needs the host path so the dashboard can mount the deployment
+# scripts into its sidecar runner. Derive it for local invocations when the
+# caller did not provide an override.
+if [[ -z "${SCRIPTS_HOST_PATH:-}" ]]; then
+    export SCRIPTS_HOST_PATH="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
+
 echo "[+] Removing old local image to bust layer cache..."
 docker image rm "$IMAGE" 2>/dev/null || true
 

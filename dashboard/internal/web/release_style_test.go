@@ -17,12 +17,11 @@ func TestReleasePageUsesDefinedStyleHooks(t *testing.T) {
 
 	templateText := string(templateBytes)
 	for _, want := range []string{
-		`class="ops-hero compact"`,
-		`class="hero-actions"`,
-		`class="command-link"`,
-		`class="command-link secondary"`,
-		`class="action-chip good"`,
-		`class="action-chip"`,
+		`class="page-header page-hero"`,
+		`class="btn btn-primary"`,
+		`class="btn btn-secondary"`,
+		`class="btn-action good"`,
+		`class="btn-action"`,
 	} {
 		if !strings.Contains(templateText, want) {
 			t.Errorf("release template missing style hook %q", want)
@@ -31,17 +30,13 @@ func TestReleasePageUsesDefinedStyleHooks(t *testing.T) {
 
 	styleText := string(styleBytes)
 	for _, want := range []string{
-		".ops-hero {",
-		".hero-actions {",
-		".command-link {",
-		".command-link.danger {",
-		".action-chip {",
-		".action-chip.good {",
-		".action-chip.danger {",
-		".command-link:focus-visible",
-		".action-chip:focus-visible",
+		".page-header {",
+		".page-hero {",
+		".btn {",
+		".btn-action {",
+		".btn-action.good",
 		"@media (max-width: 768px)",
-		".release-actions .action-chip",
+		".release-grid",
 	} {
 		if !strings.Contains(styleText, want) {
 			t.Errorf("stylesheet missing release style %q", want)

@@ -37,7 +37,7 @@ services:
       - ${SCRIPTS_HOST_PATH:-/opt/deployment}:/opt/deployment:ro
       - ${TENANT_STATE_DIR:-/opt/tenant-state}:${TENANT_STATE_DIR:-/opt/tenant-state}
       - ${BACKUP_DIR:-/opt/tenant-backups}:${BACKUP_DIR:-/opt/tenant-backups}
-      - ${STORAGE_ROOT:-/opt/tenant-data}:/opt/tenant-data
+      - ${STORAGE_ROOT:-/opt/tenant-data}:${STORAGE_ROOT:-/opt/tenant-data}
       - ${LOG_DIR:-/opt/dashboard-logs}:/opt/dashboard-logs
     logging:
       driver: json-file

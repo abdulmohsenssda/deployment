@@ -148,7 +148,7 @@
     <button id="credentials-retry" type="button" class="btn btn-secondary" hidden
             aria-label="Retry loading credentials">Retry</button>
   </div>
-  <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div class="credentials-grid" style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <!-- Admin -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Admin account</div>
@@ -289,6 +289,7 @@
   let activityLines = [];
   let activityState = 'idle';
   let tenantActionBusy = false;
+  let activityDirty = false;
 
   // ── Output terminal helpers ────────────────────────────────
   function emptyMarkup() {
@@ -306,6 +307,7 @@
 
   function append(line, persist = true, announce = true) {
     const value = window.stripTerminalControls(String(line));
+    if (persist) activityDirty = true;
     activityLines.push(value);
     activityLines = activityLines.slice(-window.DashboardOperation.maxEntries);
     out.querySelector('.terminal-empty')?.remove();
@@ -329,6 +331,24 @@
       ? 'Previous operation did not finish; review the saved activity.'
       : undefined;
     setActivityState(recovered, detail);
+  }
+
+  async function loadActivity() {
+    try {
+      const res = await fetch('/api/tenants/' + tenant + '/activity');
+      if (!res.ok) return;
+      const data = await res.json();
+      const entries = data.entries || [];
+      if (activityDirty || activityLines.length > 0) return;
+      entries.forEach((entry) => {
+        const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+        append(at + (entry.line || ''), false, false);
+      });
+      if (entries.length) setActivityState('success', 'Loaded saved tenant activity.');
+      out.scrollTop = out.scrollHeight;
+    } catch (_) {
+      // Activity is supplemental; the live operation output remains usable.
+    }
   }
 
   function escapeHTML(value) {
@@ -863,6 +883,7 @@
 
   // Initial load
   restoreActivity();
+  loadActivity();
   loadBackups();
 })();
 </script>

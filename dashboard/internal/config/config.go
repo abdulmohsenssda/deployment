@@ -55,8 +55,8 @@ type Config struct {
 //	LOG_BUFFER_LINES=2000
 //	LOG_DIR=/opt/dashboard-logs
 //	COOKIE_SECURE=false
-//	BACKUP_RETENTION_DAYS=30
 //	STORAGE_ROOT=/opt/tenant-data
+//	BACKUP_RETENTION_DAYS=30
 func Load() (Config, error) {
 	c := Config{
 		EnvName:             envOr("DASHBOARD_ENV", "dev"),

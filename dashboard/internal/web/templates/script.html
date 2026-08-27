@@ -134,6 +134,7 @@
   const releases = {{json $.Releases}};
   let outputLines = [];
   let outputState = 'idle';
+  let activityDirty = false;
 
   function emptyMarkup() {
     return '<div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>';
@@ -261,6 +262,22 @@
 
   restoreOutput();
 
+  fetch('/api/scripts/{{.Slug}}/activity')
+    .then(response => response.ok ? response.json() : null)
+    .then(data => {
+      if (!data || activityDirty || outputLines.length > 0) return;
+      const entries = data.entries || [];
+      entries.forEach(entry => {
+        const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
+        appendLine(at + (entry.line || ''), false, false);
+      });
+      if (entries.length > 0) {
+        setOutputState('success', 'Loaded saved command activity.');
+      }
+      out.scrollTop = out.scrollHeight;
+    })
+    .catch(() => {});
+
   async function runCommand() {
     if (runInProgress) return;
     runInProgress = true;
@@ -272,6 +289,7 @@
 
       persistOnSubmit();
       const fd = new FormData(form);
+      activityDirty = true;
       setOutputState('running', 'Running — streaming command output…');
       appendLine('', true, false);
       appendLine('--- run ' + new Date().toISOString() + ' ---', true, false);

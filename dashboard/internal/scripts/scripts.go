@@ -681,6 +681,23 @@ func (r *Runner) volumeArgs() []string {
 	return args
 }
 
+func (r *Runner) dockerArgs(dockerSocket string) []string {
+	full := []string{
+		"run", "--rm", "-i",
+		"-e", "MYSQL_CLIENT_MODE=docker",
+		"-e", "BASE_DOMAIN=" + os.Getenv("BASE_DOMAIN"),
+		"-e", "PUBLIC_PROTOCOL=" + os.Getenv("PUBLIC_PROTOCOL"),
+		"-e", "ENABLE_SSL=" + os.Getenv("ENABLE_SSL"),
+		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
+		"-v", dockerSocket,
+		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
+		"--network", "host",
+	}
+	return append(full, r.volumeArgs()...)
+}
+
 // safeArg only allows characters that cannot escape an argv slot. We split on
 // whitespace ourselves and pass each piece as a discrete argv element, but we
 // still defensively reject anything that looks like a shell metachar so a
@@ -702,6 +719,13 @@ func validateArgs(argv []string) error {
 // Run executes a script with already-built argv (extra flags after the script
 // name). Sanitized output is streamed to w line-by-line as SSE `data:` frames.
 func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv []string) error {
+	return r.RunWithCallback(ctx, w, scriptName, argv, nil)
+}
+
+// RunWithCallback executes a script like Run and invokes onLine for every
+// normalized output line before it is streamed to the caller. The callback is
+// useful for durable operation history and must not write to w.
+func (r *Runner) RunWithCallback(ctx context.Context, w io.Writer, scriptName string, argv []string, onLine func(string)) error {
 	sc := Find(scriptName)
 	if sc == nil {
 		return fmt.Errorf("script %q is not in the catalog", scriptName)
@@ -729,21 +753,7 @@ func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv [
 		dockerSocket = `//./pipe/docker_engine://./pipe/docker_engine`
 	}
 
-	full := []string{
-		"run", "--rm", "-i",
-		"-e", "MYSQL_CLIENT_MODE=docker",
-		"-e", "BASE_DOMAIN=" + os.Getenv("BASE_DOMAIN"),
-		"-e", "PUBLIC_PROTOCOL=" + os.Getenv("PUBLIC_PROTOCOL"),
-		"-e", "ENABLE_SSL=" + os.Getenv("ENABLE_SSL"),
-		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
-		"-v", dockerSocket,
-		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
-		"--network", "host",
-	}
-	// Mount persistent host directories so scripts operate on server data.
-	full = append(full, r.volumeArgs()...)
+	full := r.dockerArgs(dockerSocket)
 	full = append(full,
 		img,
 		// CRLF tolerance: scripts authored on Windows have \r line endings
@@ -777,6 +787,9 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := ansi.Strip(scanner.Text())
+		if onLine != nil {
+			onLine(line)
+		}
 		if _, werr := fmt.Fprintf(w, "data: %s\n\n", line); werr != nil {
 			_ = cmd.Process.Kill()
 			break
