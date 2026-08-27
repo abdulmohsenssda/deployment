@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 
-const BASE = 'http://localhost:8088';
+const BASE = process.env.DASHBOARD_BASE_URL || 'http://localhost:8088';
 const USER = 'admin';
 const PASS = 'admin';
 
@@ -13,6 +13,29 @@ async function login(page: Page) {
   await page.click('button[type="submit"]');
   // Login redirects to /?from=login — match any URL starting with BASE + '/'
   await page.waitForURL(url => url.toString().startsWith(BASE + '/') && !url.toString().includes('/login'), { timeout: 8000 });
+}
+
+async function loadMockFleet(page: Page) {
+  const tenant = 'mock-tenant';
+  await page.route('**/events', route => route.fulfill({
+    contentType: 'text/event-stream',
+    body: [
+      'event: snapshot',
+      'data: ' + JSON.stringify({
+        healthy: true,
+        refreshing: false,
+        updated_at: new Date().toISOString(),
+        duration_ms: 1,
+        error: '',
+        apps: [
+          { name: tenant + '-backend', role: 'backend', tenant, state: 'running', image: 'repo/api:dev', version: 'dev', http: '200', int_port: '80', host_ports: '', procs: '', domains: '' },
+          { name: tenant + '-frontend', role: 'frontend', tenant, state: 'running', image: 'repo/web:dev', version: 'dev', http: '200', int_port: '80', host_ports: '', procs: '', domains: '' },
+        ],
+      }),
+    ].join('\n') + '\n\n',
+  }));
+  await page.reload();
+  return tenant;
 }
 
 // ── login page ───────────────────────────────────────────────────────────────
@@ -90,6 +113,71 @@ test('SSE loads and removes skeleton rows', async ({ page }) => {
 test('dokku pill appears', async ({ page }) => {
   await login(page);
   await expect(page.locator('#dokku-pill')).toBeVisible();
+});
+
+test('fleet lifecycle action shows progress and restores controls after success', async ({ page }) => {
+  await login(page);
+  const name = await loadMockFleet(page);
+
+  const row = page.locator('.tenant-row').first();
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await expect(row).toHaveAttribute('data-name', name);
+
+  await page.route('**/tenants/**/start', async route => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/plain; charset=utf-8',
+      body: 'mock start complete\n',
+    });
+  });
+
+  const start = row.locator('[data-act="start"]');
+  await start.click();
+  await expect(start).toBeDisabled();
+  await expect(start).toContainText('Working');
+  await expect(row.locator('[data-act="stop"]')).toBeDisabled();
+  await expect(row.locator('.js-action-feedback')).toHaveText('start in progress…');
+  await expect(start).toBeEnabled({ timeout: 4000 });
+  await expect(start).toHaveText('▶ Start');
+  await expect(row.locator('[data-act="stop"]')).toBeEnabled();
+  await expect(row.locator('.js-action-feedback')).toHaveText('✓ start complete');
+});
+
+test('fleet lifecycle action reports failure and restores controls', async ({ page }) => {
+  await login(page);
+  const name = await loadMockFleet(page);
+
+  const row = page.locator('.tenant-row').first();
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await expect(row).toHaveAttribute('data-name', name);
+
+  await page.route('**/tenants/**/restart', async route => {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await route.fulfill({
+      status: 500,
+      contentType: 'text/plain; charset=utf-8',
+      body: 'mock restart failed\n',
+    });
+  });
+
+  let confirmationMessage = '';
+  page.once('dialog', async dialog => {
+    confirmationMessage = dialog.message();
+    await dialog.accept();
+  });
+
+  const restart = row.locator('[data-act="restart"]');
+  await restart.click();
+  await expect(restart).toBeDisabled();
+  await expect(restart).toContainText('Working');
+  await expect(row.locator('[data-act="start"]')).toBeDisabled();
+  await expect(row.locator('.js-action-feedback')).toHaveText('restart in progress…');
+  await expect(restart).toBeEnabled({ timeout: 4000 });
+  await expect(restart).toHaveText('↺ Restart');
+  await expect(row.locator('[data-act="start"]')).toBeEnabled();
+  await expect(row.locator('.js-action-feedback')).toHaveText('✖ restart failed: mock restart failed');
+  expect(confirmationMessage).toBe('restart ' + name + '?');
 });
 
 // ── navigation ───────────────────────────────────────────────────────────────

@@ -258,21 +258,78 @@
     }
   }
 
+  function setActionFeedback(row, kind, message) {
+    const feedback = row.querySelector('.js-action-feedback');
+    if (!feedback) return;
+    feedback.className = 'action-feedback js-action-feedback' + (kind ? ' ' + kind : '');
+    feedback.textContent = message;
+  }
+
+  function setRowActionWorking(row, btn, act, name) {
+    const buttons = row.querySelectorAll('.btn-action[data-act]');
+    row.dataset.actionPending = act;
+    row.classList.add('action-pending');
+    row.setAttribute('aria-busy', 'true');
+    buttons.forEach(actionBtn => {
+      actionBtn.disabled = true;
+      actionBtn.setAttribute('aria-disabled', 'true');
+    });
+    btn.classList.add('is-working');
+    btn.innerHTML = '<span class="action-spinner" aria-hidden="true"></span><span>Working…</span>';
+    btn.setAttribute('aria-busy', 'true');
+    btn.setAttribute('aria-label', act + ' ' + name + ' in progress');
+    setActionFeedback(row, 'working', act + ' in progress…');
+  }
+
+  function restoreRowActions(row) {
+    row.querySelectorAll('.btn-action[data-act]').forEach(actionBtn => {
+      actionBtn.disabled = actionBtn.dataset.idleDisabled === 'true';
+      actionBtn.removeAttribute('aria-disabled');
+      actionBtn.removeAttribute('aria-busy');
+      actionBtn.removeAttribute('aria-label');
+      actionBtn.classList.remove('is-working');
+      actionBtn.textContent = actionBtn.dataset.idleLabel || actionBtn.textContent;
+    });
+    row.classList.remove('action-pending');
+    row.removeAttribute('aria-busy');
+    delete row.dataset.actionPending;
+  }
+
+  function actionDetail(detail) {
+    return String(detail || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+  }
+
   function attachRowHandlers(row) {
-    row.querySelectorAll('.btn-action[data-act]').forEach(btn => {
+    const buttons = row.querySelectorAll('.btn-action[data-act]');
+    buttons.forEach(btn => {
+      btn.dataset.idleLabel = btn.textContent;
+      btn.dataset.idleDisabled = String(btn.disabled);
       btn.addEventListener('click', async e => {
         e.stopPropagation();
         const act = btn.dataset.act;
         const name = row.dataset.name;
+        if (row.dataset.actionPending) {
+          toast(name + ' already has ' + row.dataset.actionPending + ' in progress.', 'err');
+          return;
+        }
         if ((act === 'stop' || act === 'restart') && !confirm(act + ' ' + name + '?')) return;
-        btn.disabled = true;
+        setRowActionWorking(row, btn, act, name);
         try {
           const res = await fetch('/tenants/' + name + '/' + act, { method: 'POST' });
-          toast(act + ' ' + name + ': ' + (res.ok ? 'ok' : await res.text()), res.ok ? 'ok' : 'err');
+          if (res.ok) {
+            toast(act + ' ' + name + ': ok', 'ok');
+            setActionFeedback(row, 'success', '✓ ' + act + ' complete');
+          } else {
+            const detail = await res.text();
+            const message = detail.trim() || ('HTTP ' + res.status);
+            toast(act + ' ' + name + ': ' + message, 'err');
+            setActionFeedback(row, 'failure', '✖ ' + act + ' failed: ' + (actionDetail(detail) || message));
+          }
         } catch (err) {
           toast(act + ' failed: ' + err.message, 'err');
+          setActionFeedback(row, 'failure', '✖ ' + act + ' failed: ' + (actionDetail(err.message) || 'request error'));
         } finally {
-          btn.disabled = false;
+          restoreRowActions(row);
         }
       });
     });

@@ -432,6 +432,30 @@ input, select, textarea { font: inherit; color: inherit; }
 .btn-action.warn         { color: var(--amber); border-color: var(--amber-bd); }
 .btn-action.warn:hover   { background: var(--amber-bg); }
 .btn-action.unavailable  { color: var(--text-dim); border-style: dashed; cursor: default; }
+.btn-action:disabled { cursor: wait; opacity: .72; }
+.btn-action.is-working { color: var(--accent-h); border-color: var(--blue-bd); }
+.action-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: action-spin .8s linear infinite;
+}
+@keyframes action-spin { to { transform: rotate(360deg); } }
+.action-feedback {
+  display: block;
+  min-height: 16px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.action-feedback.working { color: var(--accent-h); }
+.action-feedback.success { color: var(--green); }
+.action-feedback.failure { color: var(--red); }
 
 /* Skeleton rows */
 .skel-row td { padding: 12px; }
