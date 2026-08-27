@@ -1,7 +1,7 @@
 // Package retention runs the backup retention policy on a schedule.
 //
 // Policy:
-//   - Auto-origin backups older than RetentionDays (default 7) are pruned.
+//   - Auto-origin backups older than RetentionDays (default 30) are pruned.
 //   - User-origin backups are never auto-deleted by this policy.
 //   - User-origin backups are capped at MaxUserBackups (default 50) per tenant;
 //     a warning is logged when the limit is reached (deletion is the user's job).
@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	DefaultRetentionDays = 7
+	DefaultRetentionDays = 30
 	MaxUserBackups       = 50
 )
 
@@ -29,6 +29,7 @@ type Runner struct {
 	dockerBin       string
 	runnerImage     string
 	scriptsHostPath string
+	backupDir       string
 	retentionDays   int
 	stop            chan struct{}
 }
@@ -45,6 +46,12 @@ func New(dockerBin, runnerImage, scriptsHostPath string, retentionDays int) *Run
 		retentionDays:   retentionDays,
 		stop:            make(chan struct{}),
 	}
+}
+
+// SetBackupDir configures the host backup directory mounted into retention
+// sidecars so pruning operates on persisted artifacts.
+func (r *Runner) SetBackupDir(dir string) {
+	r.backupDir = dir
 }
 
 // Start begins the daily retention run. Call Stop to shut it down cleanly.
@@ -76,6 +83,31 @@ func (r *Runner) Stop() {
 	}
 }
 
+func (r *Runner) dockerArgs(dockerSocket string) []string {
+	bashScript := `set -e
+mkdir -p /tmp/dep-ret
+cp -r /opt/deployment/scripts /tmp/dep-ret/
+[ -f /opt/deployment/config.env ] && cp /opt/deployment/config.env /tmp/dep-ret/ || true
+find /tmp/dep-ret -name '*.sh' -exec sed -i 's/\r$//' {} +
+cd /tmp/dep-ret
+exec bash scripts/manage-backups.sh prune --retention-days "$1"`
+
+	args := []string{
+		"run", "--rm", "-i",
+		"-v", dockerSocket,
+		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
+		"--network", "host",
+	}
+	if r.backupDir != "" {
+		args = append(args, "-v", r.backupDir+":"+r.backupDir, "-e", "BACKUP_DIR="+r.backupDir)
+	}
+	return append(args,
+		r.runnerImage,
+		"bash", "-c", bashScript,
+		"--", strconv.Itoa(r.retentionDays),
+	)
+}
+
 // run executes manage-backups.sh prune --retention-days N.
 func (r *Runner) run(ctx context.Context) {
 	if r.scriptsHostPath == "" {
@@ -91,28 +123,10 @@ func (r *Runner) run(ctx context.Context) {
 		dockerSocket = `//./pipe/docker_engine://./pipe/docker_engine`
 	}
 
-	bashScript := `set -e
-mkdir -p /tmp/dep-ret
-cp -r /opt/deployment/scripts /tmp/dep-ret/
-[ -f /opt/deployment/config.env ] && cp /opt/deployment/config.env /tmp/dep-ret/ || true
-find /tmp/dep-ret -name '*.sh' -exec sed -i 's/\r$//' {} +
-cd /tmp/dep-ret
-exec bash scripts/manage-backups.sh prune --retention-days "$1"`
-
-	args := []string{
-		"run", "--rm", "-i",
-		"-v", dockerSocket,
-		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
-		"--network", "host",
-		r.runnerImage,
-		"bash", "-c", bashScript,
-		"--", strconv.Itoa(r.retentionDays),
-	}
-
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, r.dockerBin, args...)
+	cmd := exec.CommandContext(runCtx, r.dockerBin, r.dockerArgs(dockerSocket)...)
 	cmd.Env = append(os.Environ(), "TERM=dumb")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

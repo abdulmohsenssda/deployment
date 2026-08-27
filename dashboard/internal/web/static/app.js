@@ -232,6 +232,8 @@
   let currentOpenStates = {};
   let fleetStream = null;
   let fleetRetryTimer = null;
+  let fleetRetryDelay = 3000;
+  let fleetStableTimer = null;
   let fleetStreamClosed = false;
 
   function renderTable(tenants) {
@@ -595,6 +597,8 @@
     if (streamStatus) streamStatus.textContent = 'Connecting to live tenant updates.';
     es.onopen = () => {
       if (fleetStream !== es || fleetStreamClosed) return;
+      clearTimeout(fleetStableTimer);
+      fleetStableTimer = setTimeout(() => { fleetRetryDelay = 3000; }, 30000);
       if (streamStatus) streamStatus.textContent = 'Live tenant updates connected.';
     };
     es.addEventListener('snapshot', ev => {
@@ -644,10 +648,12 @@
       if (table) table.setAttribute('aria-busy', 'true');
       if (streamStatus) streamStatus.textContent = 'Live tenant updates disconnected; reconnecting.';
       if (fleetRetryTimer === null) {
+        const delay = fleetRetryDelay;
+        fleetRetryDelay = Math.min(fleetRetryDelay * 2, 60000);
         fleetRetryTimer = setTimeout(() => {
           fleetRetryTimer = null;
           connectSSE();
-        }, 3000);
+        }, delay);
       }
     };
   }
@@ -661,6 +667,7 @@
         clearTimeout(fleetRetryTimer);
         fleetRetryTimer = null;
       }
+      clearTimeout(fleetStableTimer);
       if (fleetStream) {
         fleetStream.close();
         fleetStream = null;

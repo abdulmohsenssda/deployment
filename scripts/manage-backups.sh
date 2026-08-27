@@ -61,6 +61,10 @@ meta_for_id() { printf '%s/%s.meta.json' "$BACKUP_DIR" "$1"; }
 
 require_meta() {
     local id="$1" meta
+    if ! valid_backup_id "$id"; then
+        err "Invalid backup id '$id'"
+        return 1
+    fi
     meta="$(meta_for_id "$id")"
     if [ ! -f "$meta" ]; then
         err "No backup with id '$id' in $BACKUP_DIR"
@@ -117,37 +121,58 @@ cmd_list() {
         files="$(backup_meta_field "$m" files_artifact || echo '')"
         db="$(backup_meta_field "$m" db_artifact || echo '')"
         local artifacts=""
-        [ -n "$files" ] && artifacts="files($(human_size "$BACKUP_DIR/$files"))"
-        [ -n "$db" ] && artifacts="${artifacts:+$artifacts }db($(human_size "$BACKUP_DIR/$db"))"
+        if [ -n "$files" ] && backup_artifact_path "$files" >/dev/null; then
+            artifacts="files($(human_size "$BACKUP_DIR/$files"))"
+        fi
+        if [ -n "$db" ] && backup_artifact_path "$db" >/dev/null; then
+            artifacts="${artifacts:+$artifacts }db($(human_size "$BACKUP_DIR/$db"))"
+        fi
         printf '%-28s %-10s %-8s %-12s %-8s %s\n' "$id" "$origin" "$owner" "$ts" "$verified" "${artifacts:--}"
     done
 }
 
 cmd_path() {
-    local id="$1" meta files db
-    meta="$(require_meta "$id")" || return 1
-    files="$(backup_meta_field "$meta" files_artifact || echo '')"
-    db="$(backup_meta_field "$meta" db_artifact || echo '')"
-    [ -n "$files" ] && printf '%s/%s\n' "$BACKUP_DIR" "$files"
-    [ -n "$db" ] && printf '%s/%s\n' "$BACKUP_DIR" "$db"
-}
-
-cmd_verify() {
-    local id="$1" meta files db rc=0
+    local id="$1" meta files db path
     meta="$(require_meta "$id")" || return 1
     files="$(backup_meta_field "$meta" files_artifact || echo '')"
     db="$(backup_meta_field "$meta" db_artifact || echo '')"
     if [ -n "$files" ]; then
-        if verify_gzip_artifact "$BACKUP_DIR/$files"; then log "files OK: $files"; else err "files CORRUPT: $files"; rc=1; fi
+        path="$(backup_artifact_path "$files")" || { err "Invalid files artifact in '$id'"; return 1; }
+        printf '%s\n' "$path"
     fi
     if [ -n "$db" ]; then
-        if verify_gzip_artifact "$BACKUP_DIR/$db"; then log "db OK: $db"; else err "db CORRUPT: $db"; rc=1; fi
+        path="$(backup_artifact_path "$db")" || { err "Invalid DB artifact in '$id'"; return 1; }
+        printf '%s\n' "$path"
     fi
+}
+
+cmd_verify() {
+    local id="$1" meta files db path rc=0
+    meta="$(require_meta "$id")" || return 1
+    files="$(backup_meta_field "$meta" files_artifact || echo '')"
+    db="$(backup_meta_field "$meta" db_artifact || echo '')"
+    if [ -n "$files" ]; then
+        if path="$(backup_artifact_path "$files")"; then
+            if verify_gzip_artifact "$path"; then log "files OK: $files"; else err "files CORRUPT: $files"; rc=1; fi
+        else
+            err "Invalid files artifact in '$id'"
+            rc=1
+        fi
+    fi
+    if [ -n "$db" ]; then
+        if path="$(backup_artifact_path "$db")"; then
+            if verify_gzip_artifact "$path"; then log "db OK: $db"; else err "db CORRUPT: $db"; rc=1; fi
+        else
+            err "Invalid DB artifact in '$id'"
+            rc=1
+        fi
+    fi
+    [ -n "$files" ] || [ -n "$db" ] || rc=1
     return "$rc"
 }
 
 cmd_delete() {
-    local id="$1" meta origin owner files db
+    local id="$1" meta origin owner files db files_path db_path
     meta="$(require_meta "$id")" || return 1
     origin="$(backup_meta_field "$meta" origin || echo auto)"
     owner="$(backup_meta_field "$meta" owner || echo '')"
@@ -166,8 +191,14 @@ cmd_delete() {
 
     files="$(backup_meta_field "$meta" files_artifact || echo '')"
     db="$(backup_meta_field "$meta" db_artifact || echo '')"
-    [ -n "$files" ] && rm -f "$BACKUP_DIR/$files"
-    [ -n "$db" ] && rm -f "$BACKUP_DIR/$db"
+    if [ -n "$files" ]; then
+        files_path="$(backup_artifact_path "$files")" || { err "Invalid files artifact in '$id'"; return 1; }
+        rm -f "$files_path"
+    fi
+    if [ -n "$db" ]; then
+        db_path="$(backup_artifact_path "$db")" || { err "Invalid DB artifact in '$id'"; return 1; }
+        rm -f "$db_path"
+    fi
     rm -f "$meta"
     log "Deleted backup '$id' (origin=$origin owner=$owner)"
 }
@@ -178,7 +209,7 @@ cmd_prune() {
     local meta pruned=0
     while IFS= read -r meta; do
         [ -n "$meta" ] || continue
-        local origin id files db
+        local origin id files db files_path db_path
         origin="$(backup_meta_field "$meta" origin || echo auto)"
         [ "$origin" = "user" ] && continue   # protected
         id="$(backup_meta_field "$meta" id || echo '')"
@@ -187,8 +218,14 @@ cmd_prune() {
         if [ "$DRY_RUN" -eq 1 ]; then
             warn "[dry-run] would prune $id (older than ${days}d)"
         else
-            [ -n "$files" ] && rm -f "$BACKUP_DIR/$files"
-            [ -n "$db" ] && rm -f "$BACKUP_DIR/$db"
+            if [ -n "$files" ]; then
+                files_path="$(backup_artifact_path "$files")" || { err "Invalid files artifact in '$id'; skipping"; continue; }
+                rm -f "$files_path"
+            fi
+            if [ -n "$db" ]; then
+                db_path="$(backup_artifact_path "$db")" || { err "Invalid DB artifact in '$id'; skipping"; continue; }
+                rm -f "$db_path"
+            fi
             rm -f "$meta"
             warn "Pruned $id (older than ${days}d)"
         fi

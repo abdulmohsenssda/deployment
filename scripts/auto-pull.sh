@@ -102,6 +102,29 @@ auto_redeploy_enabled() {
     return 0
 }
 
+# One polling cycle may discover new backend and frontend images together.
+# Take one verified safety backup before the first deployment, then reuse it
+# for the other paired image instead of creating two backups for one release.
+AUTO_BACKUP_ATTEMPTED=0
+AUTO_BACKUP_OK=0
+ensure_auto_backup() {
+    [ "${AUTO_BACKUP_BEFORE_REDEPLOY:-1}" = "0" ] && return 0
+    if [ "$AUTO_BACKUP_ATTEMPTED" -eq 1 ]; then
+        [ "$AUTO_BACKUP_OK" -eq 1 ]
+        return
+    fi
+    AUTO_BACKUP_ATTEMPTED=1
+    info "Creating verified pre-deploy backup for $DEV_TENANT ..."
+    if bash "$SCRIPT_DIR/backup-tenant.sh" "$DEV_TENANT" \
+            --origin auto --owner auto-redeploy --require-verified --no-prune \
+            --config "$CONFIG_FILE"; then
+        AUTO_BACKUP_OK=1
+        return 0
+    fi
+    warn "Pre-deploy backup failed verification — skipping this poll's deploys."
+    return 1
+}
+
 check_and_deploy() {
     local image="$1" app_type="$2"
     [ -z "$image" ] && return 0
@@ -124,19 +147,9 @@ check_and_deploy() {
     log "New ${app_type} image: $full_image"
     info "  ${current_digest:-<first run>} → $remote_digest"
 
-    # Safety gate: an automatic deploy must be preceded by a verified backup of
-    # the tenant's SQL + files. If the backup can't be produced/verified we skip
-    # the deploy and retry next cycle rather than risk an unrecoverable rollout.
-    # AUTO_BACKUP_BEFORE_REDEPLOY=0 opts out (not recommended).
-    if [ "${AUTO_BACKUP_BEFORE_REDEPLOY:-1}" != "0" ]; then
-        info "Creating verified pre-deploy backup for $DEV_TENANT ..."
-        if ! bash "$SCRIPT_DIR/backup-tenant.sh" "$DEV_TENANT" \
-                --origin auto --owner auto-redeploy --require-verified --no-prune \
-                --config "$CONFIG_FILE"; then
-            warn "Pre-deploy backup failed verification — skipping ${app_type} deploy this cycle."
-            return 0
-        fi
-    fi
+    # Safety gate: an automatic deploy must be preceded by a verified backup.
+    # If it cannot be produced, retry on the next poll instead.
+    ensure_auto_backup || return 0
 
     if bash "$SCRIPT_DIR/deploy-all.sh" "$full_image" \
             --type "$app_type" \

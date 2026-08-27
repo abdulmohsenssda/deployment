@@ -8,8 +8,8 @@ import (
 
 	// MySQL driver: blank import registers the "mysql" driver.
 	_ "github.com/go-sql-driver/mysql"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/xuri/excelize/v2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // openMySQL opens a MySQL connection. The caller must close it.
@@ -81,6 +81,11 @@ func buildAccountingExcel(ctx context.Context, dsn, tenant string) (*excelize.Fi
 	}
 	sheets := []sheetDef{
 		{
+			name: "Chart of Accounts",
+			query: `SELECT id, code, name, type, subtype, parent_id, is_active
+			        FROM account ORDER BY code LIMIT 10000`,
+		},
+		{
 			name: "Sales Invoices",
 			query: `SELECT id, sequence_number, effective_date, payment_due_date,
 			               client_id, userName, total_before_vat, total_vat, total,
@@ -101,22 +106,43 @@ func buildAccountingExcel(ctx context.Context, dsn, tenant string) (*excelize.Fi
 			        FROM journal_entry ORDER BY posted_at DESC LIMIT 10000`,
 		},
 		{
+			name: "Journal Lines",
+			query: `SELECT id, entry_id, account_id, debit, credit
+			        FROM journal_line ORDER BY entry_id DESC, id DESC LIMIT 10000`,
+		},
+		{
+			name: "Sales Payments",
+			query: `SELECT id, bill_id, date, paid_at, amount, currency_id,
+			               payment_method, recorded_by, note, created_at
+			        FROM bill_payment ORDER BY paid_at DESC LIMIT 10000`,
+		},
+		{
+			name: "Purchase Payments",
+			query: `SELECT id, purchase_bill_id, date, paid_at, amount, currency_id,
+			               payment_method, product_id, recorded_by, note, created_at
+			        FROM purchase_bill_payment ORDER BY paid_at DESC LIMIT 10000`,
+		},
+		{
 			name: "Expenses",
-			query: `SELECT id, effective_date, payment_due_date, state, store_id,
-			               merchant_id, note, payment_method, total_before_vat,
-			               total_vat, total, amount_paid
-			        FROM expense ORDER BY effective_date DESC LIMIT 10000`,
+			query: `SELECT id, merchant_id, store_id, category_id, amount,
+			               vat_amount, spent_at, note, created_by, created_at
+			        FROM expense ORDER BY spent_at DESC, id DESC LIMIT 10000`,
 		},
 		{
 			name: "Credit Notes",
-			query: `SELECT id, effective_date, client_id, store_id, merchant_id,
-			               total_before_vat, total_vat, total, state
-			        FROM credit_note ORDER BY effective_date DESC LIMIT 10000`,
+			query: `SELECT id, bill_id, state, NOTE AS note, created_at,
+			               invoice_uuid, invoice_hash, invoice_xml_path
+			        FROM credit_note ORDER BY created_at DESC, id DESC LIMIT 10000`,
 		},
 		{
 			name: "Cash Vouchers",
-			query: `SELECT id, store_id, merchant_id, note, state
-			        FROM cash_voucher ORDER BY id DESC LIMIT 10000`,
+			query: `SELECT id, voucher_number, voucher_type, effective_date, amount,
+			               payment_method, state, reference_type, reference_id,
+			               recipient_type, recipient_id, recipient_name, description,
+			               note, bank_name, bank_account, transaction_reference,
+			               store_id, merchant_id, branch_id, created_by, approved_by,
+			               approved_at, created_at, updated_at
+			        FROM cash_voucher ORDER BY effective_date DESC, id DESC LIMIT 10000`,
 		},
 	}
 

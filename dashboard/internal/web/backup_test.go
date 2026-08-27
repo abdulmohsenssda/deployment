@@ -229,6 +229,23 @@ func TestValidBackupID(t *testing.T) {
 	}
 }
 
+func TestBackupArtifactPathRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	if got, err := backupArtifactPath(dir, "tenant_mysql_20250101_120000.sql.gz"); err != nil || got == "" {
+		t.Fatalf("expected valid artifact path, got %q, %v", got, err)
+	}
+	for _, artifact := range []string{
+		"../outside.sql.gz",
+		`..\outside.sql.gz`,
+		"/etc/passwd",
+		`C:\Windows\win.ini`,
+	} {
+		if got, err := backupArtifactPath(dir, artifact); err == nil || got != "" {
+			t.Errorf("backupArtifactPath(%q) = %q, %v; expected rejection", artifact, got, err)
+		}
+	}
+}
+
 // ── fetchImageTagsWithMeta ────────────────────────────────────────────────────
 
 func TestFetchImageTagsWithMetaFilter(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/abdul-mohsen/deployment/dashboard/internal/config"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/dokku"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/logbuf"
+	"github.com/abdul-mohsen/deployment/dashboard/internal/retention"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/scripts"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/tenantstate"
 	"github.com/go-chi/chi/v5"
@@ -339,18 +340,44 @@ func (s *server) handleTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	autoRedeploy := s.tenantState.IsAutoRedeployEnabled(name)
 	s.render(w, "tenant.html", map[string]any{
-		"Env":            s.cfg.EnvName,
-		"Base":           s.cfg.BaseDomain,
-		"Tenant":         name,
-		"SiteURL":        s.publicTenantURL(name),
-		"Apps":           apps,
-		"Backend":        backend,
-		"Frontend":       frontend,
-		"Versions":       scripts.VersionCatalog(),
-		"DefaultVersion": s.compatibleDefaultImageVersion(r.Context(), "both", ""),
-		"AutoRedeploy":   autoRedeploy,
-		"MaxUserBackups": 50,
+		"Env":                 s.cfg.EnvName,
+		"Base":                s.cfg.BaseDomain,
+		"Tenant":              name,
+		"SiteURL":             s.publicTenantURL(name),
+		"Apps":                apps,
+		"Backend":             backend,
+		"Frontend":            frontend,
+		"Versions":            scripts.VersionCatalog(),
+		"DefaultVersion":      tenantSyncVersion(backend, frontend, s.compatibleDefaultImageVersion(r.Context(), "both", "")),
+		"AutoRedeploy":        autoRedeploy,
+		"BackupRetentionDays": backupRetentionDays(s.cfg.BackupRetentionDays),
+		"MaxUserBackups":      50,
 	})
+}
+
+func backupRetentionDays(days int) int {
+	if days <= 0 {
+		return retention.DefaultRetentionDays
+	}
+	return days
+}
+
+// tenantSyncVersion returns the image tag to pre-fill the Sync-version form
+// with. It prefers the tenant's currently deployed tag (backend first, then
+// frontend) so the details reflect the selected/deployed version instead of the
+// fleet default. When neither app reports a version it falls back to def.
+func tenantSyncVersion(backend, frontend *dokku.App, def string) string {
+	if backend != nil {
+		if v := strings.TrimSpace(backend.Version); v != "" {
+			return v
+		}
+	}
+	if frontend != nil {
+		if v := strings.TrimSpace(frontend.Version); v != "" {
+			return v
+		}
+	}
+	return def
 }
 
 func (s *server) handleTenantAction(w http.ResponseWriter, r *http.Request) {

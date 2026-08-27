@@ -14,6 +14,7 @@ env:
 
 jobs:
   build-and-push:
+    # Docker Hub credentials are never exposed to fork pull requests.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:

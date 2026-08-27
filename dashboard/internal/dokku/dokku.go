@@ -51,7 +51,7 @@ type App struct {
 	HTTPCode       string // Deprecated compatibility alias for Probe.HTTPCode.
 	Probe          HealthProbe
 	ContainerID    string
-	PublicURL   string
+	PublicURL      string
 }
 
 // HealthProbe describes the latest application HTTP probe independently from
@@ -152,6 +152,14 @@ func (c *Client) containerSummary(ctx context.Context, cid string) containerSumm
 {{.Config.Image}}
 {{.RestartCount}}
 {{range .Config.Env}}{{println .}}{{end}}`, cid)
+	summary := parseContainerSummary(out)
+	if err != nil {
+		summary.Error = err.Error()
+	}
+	return summary
+}
+
+func parseContainerSummary(out string) containerSummary {
 	lines := strings.Split(out, "\n")
 	summary := containerSummary{}
 	if len(lines) > 0 {
@@ -163,15 +171,12 @@ func (c *Client) containerSummary(ctx context.Context, cid string) containerSumm
 	if len(lines) > 2 {
 		summary.RestartCnt = strings.TrimSpace(lines[2])
 	}
-	for _, line := range lines[3:] {
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "APP_IMAGE_VERSION=") {
 			summary.Version = strings.TrimPrefix(line, "APP_IMAGE_VERSION=")
 			break
 		}
-	}
-	if err != nil {
-		summary.Error = err.Error()
 	}
 	return summary
 }

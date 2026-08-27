@@ -21,7 +21,7 @@
 #   curl -sf -X POST https://dev.yourdomain.com:9999/deploy \
 #     -H "Authorization: Bearer YOUR_WEBHOOK_SECRET" \
 #     -H "Content-Type: application/json" \
-#     -d '{"type":"backend","image":"youruser/api:abc123"}'
+#     -d '{"type":"backend","image":"youruser/ifritah-api:abc123"}'
 #
 # Dependencies: ncat — runs automatically via Docker (see webhook-deploy.service)
 # =============================================================================

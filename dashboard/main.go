@@ -50,9 +50,16 @@ func main() {
 	if cfg.BackupDir != "" {
 		runner.SetBackupDir(cfg.BackupDir)
 	}
+	if cfg.StorageRoot != "" {
+		runner.SetStorageRoot(cfg.StorageRoot)
+	}
 
-	// Start the daily backup retention policy (prunes auto-origin backups older than 7 days).
-	retentionRunner := retention.New(cfg.DockerBin, cfg.RunnerImage, cfg.ScriptsHostPath, retention.DefaultRetentionDays)
+	// Start the daily backup retention policy. User-origin backups are never
+	// pruned by this policy.
+	retentionRunner := retention.New(cfg.DockerBin, cfg.RunnerImage, cfg.ScriptsHostPath, cfg.BackupRetentionDays)
+	if cfg.BackupDir != "" {
+		retentionRunner.SetBackupDir(cfg.BackupDir)
+	}
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	retentionRunner.Start(bgCtx)
 

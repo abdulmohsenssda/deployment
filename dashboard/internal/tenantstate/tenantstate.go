@@ -72,7 +72,7 @@ func (s *Store) Load(tenant string) (State, error) {
 func (s *Store) Save(tenant string, st State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(st, "", "  ")
@@ -80,7 +80,7 @@ func (s *Store) Save(tenant string, st State) error {
 		return err
 	}
 	tmp := s.path(tenant) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, s.path(tenant))

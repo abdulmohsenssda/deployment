@@ -3,7 +3,7 @@
 # setup-dev-tenant.sh — Provision the single dev tenant
 # =============================================================================
 # Creates exactly one dev tenant whose backend (and optionally frontend) tracks
-# DEV_TAG. App repo CI should build the VERSION tag; webhook deploys are preferred.
+# DEV_TAG. App repo CI should build the branch tag; webhook deploys are preferred.
 #
 # Idempotent: re-running just refreshes the image pins.
 #

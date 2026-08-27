@@ -210,7 +210,7 @@
       <span class="panel-title backup-toolbar-title">Backups</span>
       <span id="backup-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">Loading backups…</span>
       <span class="backup-retention">
-        Auto backups retained 7 days · User backups kept until deleted (max {{.MaxUserBackups}})
+        Auto backups retained {{.BackupRetentionDays}} days · User backups kept until deleted (max {{.MaxUserBackups}})
       </span>
     </div>
     <div class="backup-toolbar-controls" aria-label="Backup history controls">
@@ -331,6 +331,12 @@
     setActivityState(recovered, detail);
   }
 
+  function escapeHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
   async function streamSSE(url, method, body) {
     setActivityState('running', 'Running — streaming operation output…');
     append('--- ' + method + ' ' + url + ' @ ' + new Date().toISOString() + ' ---', true, false);
@@ -380,35 +386,45 @@
   }
 
   // ── Sync version form ──────────────────────────────────────
-  form.addEventListener('submit', (ev) => {
+  const syncBtn = form.querySelector('button[type="submit"], button:not([type])');
+  let syncBusy = false;
+  form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const button = form.querySelector('button[type="submit"]');
-    if (button?.disabled) return;
+    if (syncBusy || button?.disabled) return;
     const imageInput = form.elements.image_version;
     if (imageInput && !imageInput.checkValidity()) {
       imageInput.reportValidity();
       return;
     }
+    syncBusy = true;
+    const prevLabel = button ? button.textContent : '';
     if (button) {
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
+      button.textContent = 'Syncing…';
     }
-    streamSSE('/scripts/update-tenant/run', 'POST', new FormData(form))
-      .finally(() => {
-        if (button) {
-          button.disabled = false;
-          button.setAttribute('aria-busy', 'false');
-        }
-      });
+    try {
+      await streamSSE('/scripts/update-tenant/run', 'POST', new FormData(form));
+    } catch (e) {
+      append('✖ sync failed: ' + (e && e.message ? e.message : e));
+    } finally {
+      syncBusy = false;
+      if (button) {
+        button.disabled = false;
+        button.setAttribute('aria-busy', 'false');
+        button.textContent = prevLabel;
+      }
+    }
   });
 
   // ── Lifecycle buttons ──────────────────────────────────────
-  document.querySelectorAll('.tenant-act').forEach((btn) => {
+  tenantActionButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
+      if (tenantActionBusy) return;
       const verb = btn.dataset.tenantAct;
       const msg = btn.dataset.confirm;
       if (msg && !confirm(msg)) return;
-      if (tenantActionBusy) return;
       tenantActionBusy = true;
       tenantActionButtons.forEach((actionBtn) => {
         actionBtn.disabled = true;
@@ -481,7 +497,7 @@
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'enabled=' + (enabled ? '1' : '0'),
         });
-        if (!res.ok) {
+          if (!res.ok) {
           toggle.checked = !enabled; // revert
           append('✖ Failed to save auto-redeploy setting: ' + res.status);
           setActivityState('failure', 'Failed — auto-redeploy setting was not saved.');
@@ -784,18 +800,26 @@
   backupSearch?.addEventListener('input', renderBackups);
 
   // Create backup button
+  let backupBusy = false;
   createBackupBtn?.addEventListener('click', async () => {
-    if (createBackupBtn.disabled) return;
+    if (backupBusy || createBackupBtn.disabled) return;
+    backupBusy = true;
+    const prevLabel = createBackupBtn.textContent;
     createBackupBtn.disabled = true;
     createBackupBtn.setAttribute('aria-busy', 'true');
+    createBackupBtn.textContent = 'Creating…';
     const label = document.getElementById('backup-label').value.trim();
     const body = label ? 'label=' + encodeURIComponent(label) : '';
     try {
       await streamSSE('/tenants/' + tenant + '/backup', 'POST', body || null);
       await loadBackups();
+    } catch (e) {
+      append('✖ backup failed: ' + (e && e.message ? e.message : e));
     } finally {
+      backupBusy = false;
       createBackupBtn.disabled = false;
       createBackupBtn.setAttribute('aria-busy', 'false');
+      createBackupBtn.textContent = prevLabel;
     }
   });
 
@@ -805,8 +829,11 @@
     restoreModal.setAttribute('aria-hidden', 'true');
     pendingRestoreID = null;
   });
+  let restoreBusy = false;
   restoreConfirmBtn?.addEventListener('click', async () => {
+    if (restoreBusy) return;
     if (!pendingRestoreID) return;
+    restoreBusy = true;
     const id = pendingRestoreID;
     restoreConfirmBtn.disabled = true;
     restoreConfirmBtn.setAttribute('aria-busy', 'true');
@@ -814,9 +841,12 @@
     restoreModal.setAttribute('aria-hidden', 'true');
     pendingRestoreID = null;
     try {
-      await streamSSE('/tenants/' + tenant + '/backups/' + id + '/restore', 'POST', null);
+      await streamSSE('/tenants/' + encodeURIComponent(tenant) + '/backups/' + encodeURIComponent(id) + '/restore', 'POST', null);
       await loadBackups();
+    } catch (e) {
+      append('✖ restore failed: ' + (e && e.message ? e.message : e));
     } finally {
+      restoreBusy = false;
       restoreConfirmBtn.disabled = false;
       restoreConfirmBtn.setAttribute('aria-busy', 'false');
     }

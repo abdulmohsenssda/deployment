@@ -59,6 +59,7 @@ info() { echo -e "${BLUE}[i]${NC} $*"; }
 
 [ -n "$TENANT_ARG" ] || { err "usage: $0 <tenant> --from <backup-id>"; exit 1; }
 [ -n "$FROM_ID" ] || { err "--from <backup-id> is required"; exit 1; }
+valid_backup_id "$FROM_ID" || { err "Invalid backup id '$FROM_ID'"; exit 1; }
 if [ "$FILES_ONLY" -eq 1 ] && [ "$DB_ONLY" -eq 1 ]; then
     err "--files-only and --db-only are mutually exclusive"; exit 1
 fi
@@ -80,6 +81,20 @@ fi
 
 FILES_ARTIFACT="$(backup_meta_field "$META" files_artifact || echo '')"
 DB_ARTIFACT="$(backup_meta_field "$META" db_artifact || echo '')"
+FILES_PATH=""
+DB_PATH=""
+if [ -n "$FILES_ARTIFACT" ]; then
+    FILES_PATH="$(backup_artifact_path "$FILES_ARTIFACT")" || {
+        err "Invalid files artifact in backup '$FROM_ID'"
+        exit 1
+    }
+fi
+if [ -n "$DB_ARTIFACT" ]; then
+    DB_PATH="$(backup_artifact_path "$DB_ARTIFACT")" || {
+        err "Invalid DB artifact in backup '$FROM_ID'"
+        exit 1
+    }
+fi
 
 # Decide what to restore based on flags and what the backup actually contains.
 RESTORE_FILES=0
@@ -93,10 +108,10 @@ fi
 
 # Never restore from a corrupt backup.
 if [ "$RESTORE_FILES" -eq 1 ]; then
-    verify_gzip_artifact "$BACKUP_DIR/$FILES_ARTIFACT" || { err "Files archive is corrupt: $FILES_ARTIFACT"; exit 1; }
+    verify_gzip_artifact "$FILES_PATH" || { err "Files archive is corrupt: $FILES_ARTIFACT"; exit 1; }
 fi
 if [ "$RESTORE_DB" -eq 1 ]; then
-    verify_gzip_artifact "$BACKUP_DIR/$DB_ARTIFACT" || { err "MySQL dump is corrupt: $DB_ARTIFACT"; exit 1; }
+    verify_gzip_artifact "$DB_PATH" || { err "MySQL dump is corrupt: $DB_ARTIFACT"; exit 1; }
 fi
 
 info "Restore plan for tenant '$TENANT' from backup '$FROM_ID':"
@@ -131,7 +146,7 @@ fi
 if [ "$RESTORE_FILES" -eq 1 ]; then
     log "Restoring files into $STORAGE_ROOT ..."
     mkdir -p "$STORAGE_ROOT"
-    tar xzf "$BACKUP_DIR/$FILES_ARTIFACT" -C "$STORAGE_ROOT"
+    tar xzf "$FILES_PATH" -C "$STORAGE_ROOT"
     log "Files restored."
 fi
 
@@ -144,7 +159,7 @@ if [ "$RESTORE_DB" -eq 1 ]; then
     fi
     log "Restoring MySQL database '$local_db' ..."
     run_mysql -e "CREATE DATABASE IF NOT EXISTS \`${local_db}\`"
-    gunzip -c "$BACKUP_DIR/$DB_ARTIFACT" | run_mysql "$local_db"
+    gunzip -c "$DB_PATH" | run_mysql "$local_db"
     log "Database restored."
 fi
 

@@ -9,11 +9,11 @@
 #   ./scripts/deploy-all.sh <image> --config /opt/deployment/config.dev.env
 #
 # Examples:
-#   ./scripts/deploy-all.sh myuser/api:v2.1                    # backend to all
-#   ./scripts/deploy-all.sh myuser/api:v2.1 --type backend
-#   ./scripts/deploy-all.sh myuser/web:v2.1 --type frontend
-#   ./scripts/deploy-all.sh myuser/api:v2.1 --tenant acme      # single tenant only
-#   ./scripts/deploy-all.sh myuser/api:v2.1 --skip-canary      # no canary check
+#   ./scripts/deploy-all.sh myuser/ifritah-api:v2.1                    # backend to all
+#   ./scripts/deploy-all.sh myuser/ifritah-api:v2.1 --type backend
+#   ./scripts/deploy-all.sh myuser/ifritah-web:v2.1 --type frontend
+#   ./scripts/deploy-all.sh myuser/ifritah-api:v2.1 --tenant acme      # single tenant only
+#   ./scripts/deploy-all.sh myuser/ifritah-api:v2.1 --skip-canary      # no canary check
 # =============================================================================
 
 set -euo pipefail

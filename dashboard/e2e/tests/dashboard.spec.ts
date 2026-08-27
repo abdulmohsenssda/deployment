@@ -186,6 +186,21 @@ test('SSE loads and removes skeleton rows', async ({ page }) => {
   await expect(page.locator('.skel-row')).toHaveCount(0, { timeout: 15000 });
 });
 
+test('SSE failures close the stream and back off reconnects', async ({ page }) => {
+  await login(page);
+  let attempts = 0;
+  await page.route('**/events', route => {
+    attempts++;
+    route.abort();
+  });
+  await page.goto(BASE + '/');
+  await page.waitForTimeout(7000);
+  // The first retry is delayed by 3s and the next by 6s. A failed
+  // EventSource must not keep its browser retry loop alive or create
+  // overlapping streams.
+  expect(attempts).toBeLessThanOrEqual(2);
+});
+
 test('dokku pill appears', async ({ page }) => {
   await login(page);
   await expect(page.locator('#dokku-pill')).toBeVisible();
@@ -1002,4 +1017,60 @@ test('missing image tag is rejected with visible compatibility feedback', async 
   const warning = page.locator('[data-image-compatibility]');
   await expect(warning).toBeVisible();
   await expect(warning).toContainText('was not found');
+});
+
+// ── tenant version sync + lifecycle (release-details defects) ──────────────────
+
+test('tenant sync form pre-fills a non-empty image tag (deployed version or dev)', async ({ page }) => {
+  await login(page);
+  await page.goto(BASE + '/tenants/dev-git');
+  const input = page.locator('#tenant-version-form input[name="image_version"]');
+  await expect(input).toBeVisible();
+  // The Sync form must reflect the tenant's selected/deployed tag (or the dev
+  // default) — never blank and never a stale placeholder from an empty catalog.
+  const val = await input.inputValue();
+  expect(val.trim().length).toBeGreaterThan(0);
+});
+
+test('tenant lifecycle start button shows loading + disabled state during action', async ({ page }) => {
+  await login(page);
+  // Delay the lifecycle POST so the in-flight disabled state is observable.
+  await page.route('**/tenants/dev-git/start', async route => {
+    await new Promise(r => setTimeout(r, 600));
+    route.fulfill({ contentType: 'text/plain; charset=utf-8', body: 'OK start dev-git\n' });
+  });
+  await page.goto(BASE + '/tenants/dev-git');
+
+  const startBtn = page.locator('.tenant-act[data-tenant-act="start"]');
+  const stopBtn = page.locator('.tenant-act[data-tenant-act="stop"]');
+  await expect(startBtn).toBeEnabled();
+
+  await startBtn.click();
+  // While the action runs the whole lifecycle group is disabled (idempotency:
+  // start/stop/restart/rebuild cannot overlap).
+  await expect(startBtn).toBeDisabled();
+  await expect(stopBtn).toBeDisabled();
+
+  // After completion the group is re-enabled and the result is streamed.
+  await expect(startBtn).toBeEnabled({ timeout: 4000 });
+  await expect(stopBtn).toBeEnabled();
+  await expect(page.locator('#tenant-out')).toContainText('start dev-git');
+});
+
+test('tenant sync button disables while a sync is streaming', async ({ page }) => {
+  await login(page);
+  await page.route('**/scripts/update-tenant/run', async route => {
+    await new Promise(r => setTimeout(r, 600));
+    route.fulfill({
+      contentType: 'text/event-stream',
+      body: 'data: syncing…\n\nevent: done\ndata: end\n\n',
+    });
+  });
+  await page.goto(BASE + '/tenants/dev-git');
+
+  const syncBtn = page.locator('#tenant-version-form button').first();
+  await page.locator('#tenant-version-form input[name="image_version"]').fill('dev');
+  await syncBtn.click();
+  await expect(syncBtn).toBeDisabled();
+  await expect(syncBtn).toBeEnabled({ timeout: 4000 });
 });

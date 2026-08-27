@@ -58,6 +58,12 @@ environment value and `org.opencontainers.image.revision` label.
 The workflow fails if `VERSION` is lower than the latest GitHub Release tag in
 that repo. Equal is allowed so a rebuild can overwrite the same Docker tag.
 
+The `qa-branch-image.yml` workflow builds same-repository pull requests for
+Docker Hub and publishes a shared, sanitized branch tag (`pr-<branch>`) plus
+an immutable `pr-<branch>-<short-sha>` tag. Fork pull requests do not receive
+Docker Hub credentials. Because both app repos derive the tag from the branch
+name, the dashboard can offer a paired tag only after both images exist.
+
 ## Required GitHub secrets in each app repo
 
 - `DOCKERHUB_USERNAME`

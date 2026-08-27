@@ -13,9 +13,9 @@
 #
 # Examples:
 #   ./scripts/rollback-tenant.sh acme --list
-#   ./scripts/rollback-tenant.sh acme --to myuser/api:abc1234
-#   ./scripts/rollback-tenant.sh acme --type frontend --to myuser/web:prev
-#   ./scripts/rollback-tenant.sh --all --to myuser/api:abc1234
+#   ./scripts/rollback-tenant.sh acme --to myuser/ifritah-api:abc1234
+#   ./scripts/rollback-tenant.sh acme --type frontend --to myuser/ifritah-web:prev
+#   ./scripts/rollback-tenant.sh --all --to myuser/ifritah-api:abc1234
 # =============================================================================
 
 set -euo pipefail

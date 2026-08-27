@@ -29,8 +29,8 @@
 #
 # Examples:
 #   ./scripts/create-tenant.sh acme --git-only
-#   ./scripts/create-tenant.sh acme --backend-image myregistry/api:v1
-#   ./scripts/create-tenant.sh acme --backend-image myregistry/api:v1 --env SECRET_KEY=abc123
+#   ./scripts/create-tenant.sh acme --backend-image myregistry/ifritah-api:v1
+#   ./scripts/create-tenant.sh acme --backend-image myregistry/ifritah-api:v1 --env SECRET_KEY=abc123
 #   ./scripts/create-tenant.sh acme --config /opt/deployment/config.dev.env
 # =============================================================================
 

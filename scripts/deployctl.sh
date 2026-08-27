@@ -47,9 +47,9 @@ Areas:
   cleanup old-files
 
 Examples:
-  deployctl tenant create acme --backend-image repo/api:v1 --frontend-image repo/web:v1
+  deployctl tenant create acme --backend-image repo/ifritah-api:v1 --frontend-image repo/ifritah-web:v1
   deployctl tenant update acme --restart
-  deployctl fleet sync repo/api:v2 --type backend --tenant acme
+  deployctl fleet sync repo/ifritah-api:v2 --type backend --tenant acme
   deployctl --plan --config /opt/deployment/config.prod.env tenant status acme --json
 USAGE
 }

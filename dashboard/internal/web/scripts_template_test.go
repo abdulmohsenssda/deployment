@@ -69,7 +69,7 @@ func TestScriptsTemplateGroupsCommandsByOperatorIntent(t *testing.T) {
 		{
 			id:    "deployment-lifecycle",
 			title: "Deployment / lifecycle",
-			slug:  []string{"create-tenant", "init-tenant-db", "dev-shell", "deploy-all", "rollback-tenant", "set-tenant-image", "update-tenant", "fix-dokku-hostname", "setup-nats", "auto-pull", "setup-dev-tenant"},
+			slug:  []string{"create-tenant", "init-tenant-db", "deploy-all", "rollback-tenant", "set-tenant-image", "update-tenant", "fix-dokku-hostname", "setup-nats", "auto-pull", "setup-dev-tenant"},
 		},
 		{
 			id:    "backup-restore",

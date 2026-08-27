@@ -21,11 +21,12 @@ rm -rf "$BD"; mkdir -p "$BD/src/acme"
 echo data > "$BD/src/acme/f.txt"
 
 seed_set() {
-    # seed_set <ts> <origin> <owner> <age-days>
+    # seed_set <ts> <origin> <owner> <age-days> [label]
     local ts="$1" origin="$2" owner="$3" age="$4"
+    local label="${5:-}"
     local tar="$BD/acme_files_${ts}.tar.gz"
     tar czf "$tar" -C "$BD/src" acme
-    write_backup_manifest "$BD/acme_${ts}.meta.json" acme "$ts" "$origin" "$owner" "$tar" - true
+    write_backup_manifest "$BD/acme_${ts}.meta.json" acme "$ts" "$origin" "$owner" "$tar" - true "$label"
     touch -d "${age} days ago" "$BD/acme_${ts}.meta.json"
 }
 
@@ -90,6 +91,41 @@ out="$(mb list --json)"
 echo "$out" | grep -q '"origin": "user"' || fail "json missing user origin"
 echo "$out" | grep -q '"owner": "dave"' || fail "json missing owner"
 pass "json listing includes manifest fields"
+
+echo
+echo "=== labels and invalid artifact paths ==="
+seed_set 20200106_000000 user erin 1 "before release"
+out="$(mb list --json)"
+echo "$out" | grep -q '"label": "before release"' || fail "json missing backup label"
+printf '%s\n' 'outside' > "$BD/outside.txt"
+cat > "$BD/acme_20200107_000000.meta.json" <<EOF
+{
+  "id": "acme_20200107_000000",
+  "tenant": "acme",
+  "origin": "auto",
+  "files_artifact": "../outside.txt",
+  "db_artifact": "",
+  "verified": false
+}
+EOF
+if mb verify acme_20200107_000000 >/dev/null 2>&1; then
+    fail "verify accepted an artifact path outside BACKUP_DIR"
+fi
+if mb verify ../outside >/dev/null 2>&1; then
+    fail "verify accepted a traversal backup id"
+fi
+[ -f "$BD/outside.txt" ] || fail "invalid artifact test changed outside file"
+pass "labels are listed and artifact traversal is rejected"
+
+echo
+echo "=== incomplete backups are marked unverified ==="
+GENERATED="$BD/generated"
+STORAGE_ROOT="$BD/src" BACKUP_DIR="$GENERATED" MYSQL_ROOT_PASSWORD=changeme \
+    bash scripts/backup-tenant.sh acme --no-prune --config "$CFG" >/dev/null
+manifest="$(find "$GENERATED" -maxdepth 1 -name '*.meta.json' -print -quit)"
+[ -n "$manifest" ] || fail "backup script did not write a manifest"
+grep -q '"verified": false' "$manifest" || fail "missing SQL backup was marked verified"
+pass "missing SQL backup is marked unverified"
 
 echo
 echo "ALL BACKUP TESTS PASSED"

@@ -179,11 +179,6 @@ type Script struct {
 	Danger  bool    // confirmation required in UI
 	Image   string  // override runner image; empty -> Runner.runnerImage default
 	Fields  []Field // ordered
-	// RawArgs skips the Go-side arg-character allowlist so the script sees
-	// exactly what the caller sent (including `{}`, `"`, `%`, etc.). Only
-	// enable on scripts that do their own metachar validation. Used by
-	// dev-shell.sh whose own guard blocks `; | & $ < > \` + newlines.
-	RawArgs bool
 }
 
 // Slug returns the URL-safe identifier for the script (file name without
@@ -475,18 +470,6 @@ func Catalog() []Script {
 			},
 		},
 		{
-			Name:    "dev-shell.sh",
-			Title:   "TEMP: Dev shell (docker only)",
-			Summary: "TEMPORARY — run a `docker ...` command in the runner sidecar. First token must be `docker`; shell metacharacters rejected. Refuses to run unless DASHBOARD_ENV=dev. Delete once tenant provisioning is stable.",
-			Danger:  true,
-			RawArgs: true, // bypass the Go arg allowlist; dev-shell.sh has its own guard
-			Fields: []Field{
-				{Name: "cmd", Label: "docker command", Flag: "--cmd", Type: "text", Required: true,
-					Placeholder: `docker run --rm --network web curlimages/curl -sS http://bx03-backend.web:8090/api/v2/register`,
-					Help:        "Must start with 'docker'. No pipes, redirects, backticks, $, or newlines."},
-			},
-		},
-		{
 			Name: "deploy-all.sh", Title: "Deploy version image",
 			Summary: "Roll one versioned backend or frontend image to all tenants (canary-first), or a single tenant.",
 			Danger:  true,
@@ -655,6 +638,7 @@ type Runner struct {
 	scriptsHostPath string // host path to /opt/deployment (mounted into runner)
 	configFile      string // optional --config path inside runner
 	backupDir       string // host path to backup dir (mounted rw so scripts can write)
+	storageRoot     string // host path to persistent tenant files (mounted rw)
 }
 
 // NewRunner builds a runner. scriptsHostPath is the path on the docker
@@ -675,6 +659,26 @@ func NewRunner(dockerBin, runnerImage, scriptsHostPath, configFile string) *Runn
 // The directory will be mounted into runner containers so scripts can write backup files.
 func (r *Runner) SetBackupDir(dir string) {
 	r.backupDir = dir
+}
+
+// SetStorageRoot configures the host path for persistent tenant files.
+// The directory is mounted into runner containers so create, backup, restore,
+// and cleanup scripts operate on the same files as Dokku.
+func (r *Runner) SetStorageRoot(dir string) {
+	r.storageRoot = dir
+}
+
+func (r *Runner) volumeArgs() []string {
+	var args []string
+	if r.backupDir != "" {
+		args = append(args, "-v", r.backupDir+":"+r.backupDir)
+		args = append(args, "-e", "BACKUP_DIR="+r.backupDir)
+	}
+	if r.storageRoot != "" {
+		args = append(args, "-v", r.storageRoot+":"+r.storageRoot)
+		args = append(args, "-e", "STORAGE_ROOT="+r.storageRoot)
+	}
+	return args
 }
 
 // safeArg only allows characters that cannot escape an argv slot. We split on
@@ -709,10 +713,8 @@ func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv [
 	if r.scriptsHostPath == "" {
 		return errors.New("SCRIPTS_HOST_PATH is not set; cannot mount scripts into runner container")
 	}
-	if !sc.RawArgs {
-		if err := validateArgs(argv); err != nil {
-			return err
-		}
+	if err := validateArgs(argv); err != nil {
+		return err
 	}
 	if r.configFile != "" {
 		argv = append(argv, "--config", r.configFile)
@@ -740,11 +742,8 @@ func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv [
 		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
 		"--network", "host",
 	}
-	// Mount the backup dir so backup scripts can write to the host filesystem
-	if r.backupDir != "" {
-		full = append(full, "-v", r.backupDir+":"+r.backupDir)
-		full = append(full, "-e", "BACKUP_DIR="+r.backupDir)
-	}
+	// Mount persistent host directories so scripts operate on server data.
+	full = append(full, r.volumeArgs()...)
 	full = append(full,
 		img,
 		// CRLF tolerance: scripts authored on Windows have \r line endings

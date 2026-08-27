@@ -38,6 +38,8 @@ services:
       # Where the dashboard process should look for install.env / config.env
       # inside its own container. Matches the read-only bind mount below.
       DEPLOYMENT_DIR: /opt/deployment
+      BACKUP_DIR: ${BACKUP_DIR:-/opt/tenant-backups}
+      STORAGE_ROOT: ${STORAGE_ROOT:-/opt/tenant-data}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount the repo root read-only so the dashboard can read install.env
@@ -46,3 +48,5 @@ services:
       - ${SCRIPTS_HOST_PATH}:/opt/deployment:ro
       - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs
       - ${TENANT_STATE_DIR:-./.tenant-state}:/opt/tenant-state
+      - ${BACKUP_DIR:-/opt/tenant-backups}:${BACKUP_DIR:-/opt/tenant-backups}
+      - ${STORAGE_ROOT:-/opt/tenant-data}:${STORAGE_ROOT:-/opt/tenant-data}
