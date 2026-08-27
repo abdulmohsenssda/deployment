@@ -175,6 +175,7 @@
   const pulseEl  = document.getElementById('pulse');
   let filterVal  = '';
   let allTenants = [];
+  let currentOpenStates = {};
 
   function renderTable(tenants) {
     if (!tbody || !tpl) return;
@@ -423,7 +424,10 @@
     if (!el) return;
     try {
       const data = JSON.parse(el.textContent || '{}');
-      allTenants = appsToTenants(data.apps || [], data.open || {});
+      if (data.open && typeof data.open === 'object' && !Array.isArray(data.open)) {
+        currentOpenStates = data.open;
+      }
+      allTenants = appsToTenants(data.apps || [], currentOpenStates);
       palTenants = allTenants;
       renderTable(allTenants);
       updateSummary(allTenants);
@@ -435,7 +439,12 @@
     es.addEventListener('snapshot', ev => {
       try {
         const data = JSON.parse(ev.data);
-        allTenants = appsToTenants(data.apps || [], data.open || {});
+        // Keep bootstrap navigation metadata if an older/misconfigured
+        // snapshot omits the open-state map.
+        if (data.open && typeof data.open === 'object' && !Array.isArray(data.open)) {
+          currentOpenStates = data.open;
+        }
+        allTenants = appsToTenants(data.apps || [], currentOpenStates);
         palTenants = allTenants;
         renderTable(allTenants);
         updateSummary(allTenants);

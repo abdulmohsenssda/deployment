@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
 	"net/http/httptest"
@@ -101,6 +102,48 @@ func TestFleetOpenStatePrefersRunningBackendWhenFrontendIsUnavailable(t *testing
 	}
 	if state.Unavailable != "" {
 		t.Fatalf("fleet unavailable reason = %q, want empty", state.Unavailable)
+	}
+}
+
+func TestHandleEventsIncludesOpenStates(t *testing.T) {
+	s := &server{
+		snapshots: &snapshotCache{
+			snap: appSnapshot{Apps: []dokku.App{{
+				Name:    "acme-frontend",
+				Role:    "frontend",
+				Tenant:  "acme",
+				State:   "running",
+				Domains: []string{"acme.example.test"},
+			}}},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/events", nil).WithContext(ctx)
+	s.handleEvents(rec, req)
+
+	body := rec.Body.String()
+	const dataPrefix = "data: "
+	start := strings.Index(body, dataPrefix)
+	if start < 0 {
+		t.Fatal("events response is missing the snapshot data")
+	}
+	start += len(dataPrefix)
+	end := strings.IndexByte(body[start:], '\n')
+	if end < 0 {
+		t.Fatal("events snapshot data is not terminated")
+	}
+
+	var snapshot struct {
+		Open map[string]fleetOpenState `json:"open"`
+	}
+	if err := json.Unmarshal([]byte(body[start:start+end]), &snapshot); err != nil {
+		t.Fatalf("decode events snapshot: %v", err)
+	}
+	if got := snapshot.Open["acme"].URL; got != "http://acme.example.test" {
+		t.Fatalf("events open URL = %q, want %q", got, "http://acme.example.test")
 	}
 }
 
