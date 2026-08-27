@@ -537,113 +537,208 @@
   //   - Substring filtering as you type (debounced 180ms)
   //   - For branch-name tags: "points to commit: <short-sha>" subtitle
   //   - Opens on focus with full list if field is empty
+  //   - Visible, announced feedback when tags are unavailable or unmatched
   //
   // The legacy <datalist id="image-tag-list"> is also kept populated for
   // backward-compat with any page that still uses it.
 
   function fetchTagData(q) {
     const url = '/api/image-tags' + (q ? '?q=' + encodeURIComponent(q) : '');
-    return fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+    return fetch(url).then(async r => {
+      if (!r.ok) return { error: true };
+      try {
+        const data = await r.json();
+        return data && typeof data === 'object' && !Array.isArray(data) ? { data } : { error: true };
+      } catch (_) {
+        return { error: true };
+      }
+    }).catch(() => ({ error: true }));
   }
 
   function removeTagDropdown(inputId) {
     const el = document.getElementById('tag-dd-' + inputId);
     if (el) el.remove();
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant');
+    }
   }
 
-  function buildTagDropdown(input, meta) {
+  function tagEntries(data) {
+    const tags = Array.isArray(data?.tags)
+      ? data.tags.filter(t => typeof t === 'string' && t)
+      : [];
+    const meta = Array.isArray(data?.meta)
+      ? data.meta.filter(m => m && typeof m.tag === 'string' && m.tag)
+      : [];
+    if (!tags.length) return meta;
+    const byTag = new Map(meta.map(m => [m.tag, m]));
+    return tags.map(tag => byTag.get(tag) || { tag });
+  }
+
+  function updateTagDatalist(data) {
+    const dl = document.getElementById('dl-image_version') || document.getElementById('image-tag-list');
+    if (!dl) return;
+    dl.innerHTML = '';
+    const tags = Array.isArray(data?.tags) ? data.tags : [];
+    tags.filter(t => typeof t === 'string' && t).forEach(t => {
+      const o = document.createElement('option');
+      o.value = t;
+      dl.appendChild(o);
+    });
+  }
+
+  function tagResultMessage(query) {
+    return query
+      ? 'No image tags match "' + query + '".'
+      : 'No image tags are available.';
+  }
+
+  function highlightTag(input, dd, idx) {
+    const items = dd.querySelectorAll('.tag-dropdown-item');
+    items.forEach((el, i) => {
+      const selected = i === idx;
+      el.classList.toggle('active', selected);
+      el.setAttribute('aria-selected', String(selected));
+    });
+    const active = items[idx];
+    if (active) input.setAttribute('aria-activedescendant', active.id);
+    else input.removeAttribute('aria-activedescendant');
+  }
+
+  function selectTag(input, item) {
+    const label = item.querySelector('.tag-dropdown-label');
+    if (!label) return;
+    input.value = label.textContent;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     removeTagDropdown(input.id);
-    if (!meta || meta.length === 0) return;
+    const wrap = input.parentElement;
+    if (wrap) wrap.style.position = '';
+  }
+
+  function buildTagDropdown(input, meta, message = '', query = '', messageKind = '') {
+    removeTagDropdown(input.id);
 
     const ul = document.createElement('ul');
     ul.id = 'tag-dd-' + input.id;
     ul.className = 'tag-dropdown';
+    ul.dataset.query = query;
+    ul.dataset.state = messageKind || (meta.length ? 'results' : 'empty');
+    ul.setAttribute('role', 'listbox');
+    ul.setAttribute('aria-label', 'Image tag suggestions');
 
-    meta.slice(0, 40).forEach(m => {
+    if (message) {
       const li = document.createElement('li');
-      // Visually dim tags that only exist in one repo — they will cause deploy failures
-      li.className = 'tag-dropdown-item' + (m.in_both === false && (m.backend_only || m.frontend_only) ? ' tag-partial' : '');
-
-      const labelEl = document.createElement('span');
-      labelEl.className = 'tag-dropdown-label';
-      labelEl.textContent = m.tag;
-      li.appendChild(labelEl);
-
-      // Show commit SHA for branch tags
-      if (m.is_branch && m.digest) {
-        const sub = document.createElement('span');
-        sub.className = 'tag-dropdown-sub';
-        const short = m.digest.replace('sha256:', '').slice(0, 12);
-        sub.textContent = 'commit: ' + short;
-        li.appendChild(sub);
-      }
-
-      // Show warning if tag only exists in one repo
-      if (m.backend_only) {
-        const warn = document.createElement('span');
-        warn.className = 'tag-dropdown-warn';
-        warn.textContent = '⚠ backend only — frontend image missing';
-        li.appendChild(warn);
-      } else if (m.frontend_only) {
-        const warn = document.createElement('span');
-        warn.className = 'tag-dropdown-warn';
-        warn.textContent = '⚠ frontend only — backend image missing';
-        li.appendChild(warn);
-      } else if (m.in_both) {
-        const ok = document.createElement('span');
-        ok.className = 'tag-dropdown-ok';
-        ok.textContent = '✓ both repos';
-        li.appendChild(ok);
-      }
-
-      li.addEventListener('mousedown', e => {
-        e.preventDefault();
-        input.value = m.tag;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        removeTagDropdown(input.id);
-        const wrap = input.parentElement;
-        if (wrap) wrap.style.position = '';
-      });
-
+      li.className = 'tag-dropdown-message' + (messageKind ? ' tag-dropdown-' + messageKind : '');
+      li.setAttribute('role', 'status');
+      li.setAttribute('aria-live', 'polite');
+      li.textContent = message;
       ul.appendChild(li);
-    });
+    } else {
+      meta.slice(0, 40).forEach((m, index) => {
+        const li = document.createElement('li');
+        li.id = input.id + '-option-' + index;
+        li.className = 'tag-dropdown-item' + (m.in_both === false && (m.backend_only || m.frontend_only) ? ' tag-partial' : '');
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'tag-dropdown-label';
+        labelEl.textContent = m.tag;
+        li.appendChild(labelEl);
+
+        // Show commit SHA for branch tags
+        if (m.is_branch && typeof m.digest === 'string' && m.digest) {
+          const sub = document.createElement('span');
+          sub.className = 'tag-dropdown-sub';
+          const short = m.digest.replace('sha256:', '').slice(0, 12);
+          sub.textContent = 'commit: ' + short;
+          li.appendChild(sub);
+        }
+
+        // Show warning if tag only exists in one repo
+        if (m.backend_only) {
+          const warn = document.createElement('span');
+          warn.className = 'tag-dropdown-warn';
+          warn.textContent = '⚠ backend only — frontend image missing';
+          li.appendChild(warn);
+        } else if (m.frontend_only) {
+          const warn = document.createElement('span');
+          warn.className = 'tag-dropdown-warn';
+          warn.textContent = '⚠ frontend only — backend image missing';
+          li.appendChild(warn);
+        } else if (m.in_both) {
+          const ok = document.createElement('span');
+          ok.className = 'tag-dropdown-ok';
+          ok.textContent = '✓ both repos';
+          li.appendChild(ok);
+        }
+
+        li.addEventListener('mouseenter', () => {
+          const items = ul.querySelectorAll('.tag-dropdown-item');
+          highlightTag(input, ul, Array.prototype.indexOf.call(items, li));
+        });
+        li.addEventListener('mousedown', e => {
+          e.preventDefault();
+          selectTag(input, li);
+        });
+
+        ul.appendChild(li);
+      });
+    }
 
     const wrap = input.parentElement;
     if (wrap) {
       wrap.style.position = 'relative';
       wrap.appendChild(ul);
     }
+    input.setAttribute('aria-controls', ul.id);
+    input.setAttribute('aria-expanded', 'true');
   }
 
   function attachTagSearch(input) {
     if (!input.id) input.id = 'tag-input-' + Math.random().toString(36).slice(2, 8);
     input.setAttribute('autocomplete', 'off');
+    input.setAttribute('aria-label', input.getAttribute('aria-label') || 'Image tag');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-haspopup', 'listbox');
+    input.setAttribute('aria-controls', 'tag-dd-' + input.id);
+    input.setAttribute('aria-expanded', 'false');
     let debounce = null;
+    let requestID = 0;
+
+    function applyTagResult(q, id, result) {
+      if (id !== requestID || input.value.trim() !== q) return;
+      if (result.error) {
+        updateTagDatalist({ tags: [] });
+        buildTagDropdown(input, [], 'Unable to load image tags. Try again.', q, 'error');
+        return;
+      }
+      const data = result.data || {};
+      const entries = tagEntries(data);
+      updateTagDatalist(data);
+      buildTagDropdown(input, entries, entries.length ? '' : tagResultMessage(q), q, entries.length ? '' : 'empty');
+    }
+
+    function requestTags(q) {
+      const id = ++requestID;
+      fetchTagData(q).then(result => applyTagResult(q, id, result));
+    }
 
     input.addEventListener('input', () => {
       clearTimeout(debounce);
+      const q = input.value.trim();
+      const id = ++requestID;
       debounce = setTimeout(() => {
-        fetchTagData(input.value.trim()).then(data => {
-          if (data) {
-            buildTagDropdown(input, data.meta || []);
-            // Also update legacy datalist
-            const dl = document.getElementById('dl-image_version') || document.getElementById('image-tag-list');
-            if (dl) {
-              dl.innerHTML = '';
-              (data.tags || []).forEach(t => {
-                const o = document.createElement('option'); o.value = t; dl.appendChild(o);
-              });
-            }
-          }
-        });
+        fetchTagData(q).then(result => applyTagResult(q, id, result));
       }, 180);
     });
 
     input.addEventListener('focus', () => {
       const q = input.value.trim();
-      if (!document.getElementById('tag-dd-' + input.id)) {
-        fetchTagData(q).then(data => data && buildTagDropdown(input, data.meta || []));
-      }
+      const dd = document.getElementById('tag-dd-' + input.id);
+      if (!dd || dd.dataset.query !== q) requestTags(q);
     });
 
     input.addEventListener('blur', () => {
@@ -657,21 +752,17 @@
       const active = dd.querySelector('.tag-dropdown-item.active');
       let idx = -1;
       items.forEach((el, i) => { if (el === active) idx = i; });
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' && items.length) {
         e.preventDefault();
-        const next = Math.min(idx + 1, items.length - 1);
-        items.forEach((el, i) => el.classList.toggle('active', i === next));
-        items[next]?.scrollIntoView({ block: 'nearest' });
-      } else if (e.key === 'ArrowUp') {
+        highlightTag(input, dd, Math.min(idx + 1, items.length - 1));
+        dd.querySelector('.tag-dropdown-item.active')?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'ArrowUp' && items.length) {
         e.preventDefault();
-        const prev = Math.max(idx - 1, 0);
-        items.forEach((el, i) => el.classList.toggle('active', i === prev));
-        items[prev]?.scrollIntoView({ block: 'nearest' });
+        highlightTag(input, dd, Math.max(idx - 1, 0));
+        dd.querySelector('.tag-dropdown-item.active')?.scrollIntoView({ block: 'nearest' });
       } else if (e.key === 'Enter' && active) {
         e.preventDefault();
-        input.value = active.querySelector('.tag-dropdown-label').textContent;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        removeTagDropdown(input.id);
+        selectTag(input, active);
       } else if (e.key === 'Escape') {
         removeTagDropdown(input.id);
       }
@@ -684,11 +775,9 @@
   // Legacy datalist population for pages that don't use data-tag-search
   const legacyDatalist = document.getElementById('image-tag-list');
   if (legacyDatalist) {
-    fetchTagData('').then(data => {
-      if (!data?.tags?.length) return;
-      data.tags.forEach(t => {
-        const o = document.createElement('option'); o.value = t; legacyDatalist.appendChild(o);
-      });
+    fetchTagData('').then(result => {
+      if (result.error) return;
+      updateTagDatalist(result.data);
     });
   }
 

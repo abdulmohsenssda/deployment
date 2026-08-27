@@ -390,6 +390,94 @@ test('/api/image-tags ?q= filter works', async ({ page }) => {
   }
 });
 
+test('image tag search shows an accessible no-match state', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', async route => {
+    const q = new URL(route.request().url()).searchParams.get('q') || '';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(q === 'missing-tag'
+        ? { tags: [], meta: [] }
+        : { tags: ['dev'], meta: [{ tag: 'dev', in_both: true }] }),
+    });
+  });
+
+  await page.goto(BASE + '/scripts/create-tenant');
+  const input = page.locator('input[name="image_version"]');
+  await input.fill('missing-tag');
+
+  const feedback = page.locator('#tag-dd-input-image_version [role="status"]');
+  await expect(feedback).toBeVisible();
+  await expect(feedback).toHaveText('No image tags match "missing-tag".');
+  await expect(feedback).toHaveAttribute('aria-live', 'polite');
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('image tag search shows empty and API failure states', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ tags: [], meta: [] }),
+    });
+  });
+
+  await page.goto(BASE + '/scripts/create-tenant');
+  const input = page.locator('input[name="image_version"]');
+  await input.fill('empty-check');
+  await input.fill('');
+  const feedback = page.locator('#tag-dd-input-image_version [role="status"]');
+  await expect(feedback).toHaveText('No image tags are available.');
+
+  await page.unroute('**/api/image-tags**');
+  await page.route('**/api/image-tags**', async route => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'text/plain',
+      body: 'Docker Hub unavailable',
+    });
+  });
+  await input.fill('dev');
+  await expect(feedback).toHaveText('Unable to load image tags. Try again.');
+  await expect(feedback).toHaveClass(/tag-dropdown-error/);
+});
+
+test('image tag search keeps mouse and keyboard selection working', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', async route => {
+    const q = new URL(route.request().url()).searchParams.get('q') || '';
+    const payload = q === 'feature'
+      ? {
+          tags: ['feature-branch'],
+          meta: [{ tag: 'feature-branch', is_branch: true, digest: 'sha256:abc123456789' }],
+        }
+      : {
+          tags: ['dev'],
+          meta: [{ tag: 'dev', in_both: true }],
+        };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(payload),
+    });
+  });
+
+  await page.goto(BASE + '/scripts/create-tenant');
+  const input = page.locator('input[name="image_version"]');
+  const dropdown = page.locator('#tag-dd-input-image_version');
+
+  await input.fill('dev');
+  await expect(dropdown.locator('.tag-dropdown-label')).toHaveText('dev');
+  await dropdown.locator('.tag-dropdown-item').click();
+  await expect(input).toHaveValue('dev');
+
+  await input.fill('feature');
+  await expect(dropdown.locator('.tag-dropdown-label')).toHaveText('feature-branch');
+  await input.press('ArrowDown');
+  await expect(dropdown.locator('.tag-dropdown-item.active')).toHaveText(/feature-branch/);
+  await input.press('Enter');
+  await expect(input).toHaveValue('feature-branch');
+});
+
 // ── tenant page (new features) ────────────────────────────────────────────────
 
 test('tenant page has backup panel and auto-redeploy card', async ({ page }) => {

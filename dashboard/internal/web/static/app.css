@@ -906,6 +906,14 @@ input, select, textarea { font: inherit; color: inherit; }
 .tag-dropdown-item.tag-partial {
   opacity: 0.65;
 }
+.tag-dropdown-message {
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.tag-dropdown-message.tag-dropdown-error {
+  color: var(--red);
+}
 
 /* ── Backup panel extras ──────────────────────────────────── */
 .backup-toolbar {
