@@ -292,6 +292,7 @@ func (s *server) handleApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app := s.dokku.AppDetails(r.Context(), name)
+	app = s.decorateApp(app)
 	s.render(w, "app.html", map[string]any{
 		"Env":  s.cfg.EnvName,
 		"Base": s.cfg.BaseDomain,
@@ -312,6 +313,7 @@ func (s *server) handleTenant(w http.ResponseWriter, r *http.Request) {
 	}
 	for i := range apps {
 		apps[i] = s.dokku.AppDetails(r.Context(), apps[i].Name)
+		apps[i] = s.decorateApp(apps[i])
 	}
 	var backend, frontend *dokku.App
 	for i := range apps {
@@ -327,6 +329,7 @@ func (s *server) handleTenant(w http.ResponseWriter, r *http.Request) {
 		"Env":            s.cfg.EnvName,
 		"Base":           s.cfg.BaseDomain,
 		"Tenant":         name,
+		"SiteURL":        s.publicTenantURL(name),
 		"Apps":           apps,
 		"Backend":        backend,
 		"Frontend":       frontend,
@@ -1223,7 +1226,7 @@ func (s *server) collectSnapshot(ctx context.Context) appSnapshot {
 	containerIDs := s.dokku.ContainerIDsByApp(ctx)
 	domains := s.dokku.DomainMap(ctx)
 	detail := func(ctx context.Context, name string) dokku.App {
-		return s.dokku.AppSummaryFrom(ctx, name, containerIDs[name], domains[name])
+		return s.decorateApp(s.dokku.AppSummaryFrom(ctx, name, containerIDs[name], domains[name]))
 	}
 	out := collectAppDetails(ctx, names, snapshotWorkerLimit(len(names)), detail)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -1337,7 +1340,7 @@ func (s *server) appsForTenant(ctx context.Context, tenant string) []dokku.App {
 		if err == nil {
 			for _, name := range names {
 				if name == tenant+"-backend" || name == tenant+"-frontend" {
-					apps = append(apps, s.dokku.AppSummary(ctx, name))
+					apps = append(apps, s.decorateApp(s.dokku.AppSummary(ctx, name)))
 				}
 			}
 		}
@@ -1374,6 +1377,21 @@ func tenantFromAppName(name string) string {
 	}
 }
 
+func (s *server) decorateApp(app dokku.App) dokku.App {
+	if app.Role == "frontend" {
+		app.PublicURL = s.publicTenantURL(app.Tenant)
+	}
+	return app
+}
+
+func (s *server) publicTenantURL(tenant string) string {
+	publicURL, err := s.cfg.PublicURLForTenant(tenant)
+	if err != nil {
+		return ""
+	}
+	return publicURL
+}
+
 func (s *server) render(w http.ResponseWriter, name string, data any) {
 	t, ok := s.pages[name]
 	if !ok {
@@ -1391,6 +1409,8 @@ func (s *server) render(w http.ResponseWriter, name string, data any) {
 		m["MySQLNeedsConfig"] = !configured
 		m["MySQLAdminUser"] = user
 		m["TenantPrefix"] = s.cfg.TenantPrefix
+		m["PublicBaseURL"] = s.cfg.PublicBaseURL()
+		m["PublicProtocol"] = s.cfg.PublicProtocol
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := t.ExecuteTemplate(w, name, data); err != nil {

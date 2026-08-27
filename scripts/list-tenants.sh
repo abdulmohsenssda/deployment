@@ -23,6 +23,7 @@ done
 
 BASE_DOMAIN="${BASE_DOMAIN:-<not set>}"
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
+public_protocol >/dev/null || exit 1
 
 echo ""
 echo "=============================="
@@ -67,7 +68,7 @@ printf "  %-18s %-30s %-10s %-10s %-8s\n" "TENANT" "URL" "BACKEND" "FRONTEND" "S
 printf "  %-18s %-30s %-10s %-10s %-8s\n" "------" "---" "-------" "--------" "-------"
 
 for tenant in $(echo "${!TENANTS[@]}" | tr ' ' '\n' | sort); do
-    url="https://${tenant}.${BASE_DOMAIN}"
+    url="$(public_tenant_url "$tenant")" || url="(invalid public URL)"
     backend_app="${tenant}-backend"
     frontend_app="${tenant}-frontend"
 

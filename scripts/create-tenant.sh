@@ -278,6 +278,8 @@ BACKEND_APP="${TENANT_NAME}-backend"
 FRONTEND_APP="${TENANT_NAME}-frontend"
 TENANT_DOMAIN="${TENANT_NAME}.${BASE_DOMAIN}"
 TENANT_NETWORK="${TENANT_APP_NETWORK:-web}"
+public_protocol >/dev/null || exit 1
+PUBLIC_TENANT_URL="$(public_tenant_url "$TENANT_NAME")" || exit 1
 # Export so init-tenant-db.sh (invoked as child bash) inherits these — it uses
 # them to reach the backend container directly over the tenant network for
 # seed user registration (bypasses the frontend proxy CSRF).
@@ -501,10 +503,6 @@ dokku config:set --no-restart "$BACKEND_APP" \
     BASEURL="${BASEURL:-/api/v2}" \
     JWT_SECERT_KEY="${JWT_SECERT_KEY:-$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 48)}"
 
-# Public URL scheme is set by the operator's host nginx (TLS is external).
-# Default to http; override with PUBLIC_PROTOCOL=https when host nginx terminates TLS.
-PROTOCOL="${PUBLIC_PROTOCOL:-http}"
-
 # Frontend speaks to backend over the per-tenant docker network. Dokku exposes
 # each web container under the alias "<app>.web" inside attached networks.
 dokku config:set --no-restart "$FRONTEND_APP" \
@@ -512,7 +510,7 @@ dokku config:set --no-restart "$FRONTEND_APP" \
     PORT="$FRONTEND_PORT" \
     APP_DOMAIN="$TENANT_DOMAIN" \
     BACKEND_URL="http://${BACKEND_APP}.web:${BACKEND_PORT}" \
-    API_URL="${PROTOCOL}://${TENANT_DOMAIN}/api"
+    API_URL="${PUBLIC_TENANT_URL}/api"
 
 # Message service (if configured)
 MSG_HOST="${MSG_HOST:-}"
@@ -749,8 +747,8 @@ echo ""
 log "============================================"
 log "  Tenant '$TENANT_NAME' created!"
 log ""
-log "  Frontend: ${PROTOCOL}://${TENANT_DOMAIN}"
-log "  API:      ${PROTOCOL}://${TENANT_DOMAIN}/api"
+log "  Frontend: ${PUBLIC_TENANT_URL}"
+log "  API:      ${PUBLIC_TENANT_URL}/api"
 log "  Storage:  ${STORAGE_ROOT}/${TENANT_NAME}/"
 log ""
 if ! $dns_ok; then

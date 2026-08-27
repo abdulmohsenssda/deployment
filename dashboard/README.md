@@ -44,6 +44,7 @@ runtime besides the docker socket.
 | `DOCKER_BIN`          | no       | `docker`        |
 | `DOKKU_CONTAINER`     | no       | `dokku`         |
 | `BASE_DOMAIN`         | no       | `localhost`     |
+| `PUBLIC_PROTOCOL`     | no       | `http` in dev, `https` in prod |
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
 | `COOKIE_SECURE`       | no       | `false`         |
@@ -62,6 +63,12 @@ APP_IMAGE_VERSION_DEFAULT=v0.0.1
 ```
 
 Use `TENANT_NAME_PREFIX` when dev and prod dashboards share one server or MySQL. With `TENANT_NAME_PREFIX=dev-`, creating tenant `acme` creates Dokku apps `dev-acme-backend` / `dev-acme-frontend` and database `tenant_dev_acme`. Use `TENANT_NAME_PREFIX=prod-` for prod so prod creates `tenant_prod_acme` instead. For two dashboards on one server, set this in each dashboard's `dashboard.env`; keep the shared `config.env` prefix unset or point each dashboard at a matching `DEPLOY_CONFIG_FILE`.
+
+`BASE_DOMAIN` is a hostname only (for example, `ifritah.com`), and
+`PUBLIC_PROTOCOL` is the one scheme used for generated tenant/site links and
+frontend API URLs. Production rejects `localhost`, `localtest.me`, loopback
+domains, and HTTP public URLs; local development may use `http` and local
+hostnames.
 
 Publishing `BACKEND_IMAGE:v0.0.1` and `FRONTEND_IMAGE:v0.0.1` makes `v0.0.1` selectable as a compatible pair. Re-pushing without changing `VERSION` overwrites that same image tag; increment `VERSION` only for a new feature or bug-fix release.
 

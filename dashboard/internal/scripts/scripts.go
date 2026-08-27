@@ -713,6 +713,9 @@ func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv [
 	full := []string{
 		"run", "--rm", "-i",
 		"-e", "MYSQL_CLIENT_MODE=docker",
+		"-e", "BASE_DOMAIN=" + os.Getenv("BASE_DOMAIN"),
+		"-e", "PUBLIC_PROTOCOL=" + os.Getenv("PUBLIC_PROTOCOL"),
+		"-e", "ENABLE_SSL=" + os.Getenv("ENABLE_SSL"),
 		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
 		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
 		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),

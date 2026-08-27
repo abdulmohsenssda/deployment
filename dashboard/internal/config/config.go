@@ -17,6 +17,7 @@ type Config struct {
 	DockerBin        string // path to the docker binary.
 	DokkuContainer   string // name of the dokku-in-docker container.
 	BaseDomain       string // base domain shown for app URLs.
+	PublicProtocol   string // scheme for generated public URLs (http or https).
 	AdminUser        string // single admin username.
 	AdminHash        string // bcrypt hash of the admin password.
 	SessionKey       []byte // cookie signing key.
@@ -46,6 +47,7 @@ type Config struct {
 //	DOCKER_BIN=docker
 //	DOKKU_CONTAINER=dokku
 //	BASE_DOMAIN=localhost
+//	PUBLIC_PROTOCOL=http|https (default "http", or "https" for prod)
 //	SESSION_KEY=<hex>         (auto-generated if missing — sessions reset on restart)
 //	LOG_BUFFER_LINES=2000
 //	COOKIE_SECURE=false
@@ -56,6 +58,7 @@ func Load() (Config, error) {
 		DockerBin:        envOr("DOCKER_BIN", "docker"),
 		DokkuContainer:   envOr("DOKKU_CONTAINER", "dokku"),
 		BaseDomain:       envOr("BASE_DOMAIN", "localhost"),
+		PublicProtocol:   envOr("PUBLIC_PROTOCOL", ""),
 		AdminUser:        os.Getenv("ADMIN_USER"),
 		AdminHash:        os.Getenv("ADMIN_PASSWORD_HASH"),
 		LogBufferLines:   envInt("LOG_BUFFER_LINES", 2000),
@@ -69,6 +72,15 @@ func Load() (Config, error) {
 		BackupDir:        envOr("BACKUP_DIR", "/opt/tenant-backups"),
 		MySQLHost:        envOr("MYSQL_HOST", "127.0.0.1"),
 		MySQLPort:        envOr("MYSQL_PORT", "3306"),
+	}
+	if baseDomain, err := normalizeBaseDomain(c.BaseDomain); err != nil {
+		return c, fmt.Errorf("BASE_DOMAIN: %w", err)
+	} else {
+		c.BaseDomain = baseDomain
+	}
+	c.PublicProtocol = c.publicProtocol()
+	if err := c.ValidatePublicURL(); err != nil {
+		return c, err
 	}
 	if c.AdminUser == "" || c.AdminHash == "" {
 		return c, fmt.Errorf("ADMIN_USER and ADMIN_PASSWORD_HASH are required")

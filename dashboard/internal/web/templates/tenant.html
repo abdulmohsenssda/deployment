@@ -7,9 +7,9 @@
     <span class="page-subtitle">Tenant detail — lifecycle, version sync, backups, auto-redeploy</span>
   </div>
   <div class="page-header-right">
-    {{with .Frontend}}{{if and .Domains (eq .State "running")}}
-    <a href="http://{{index .Domains 0}}" target="_blank" rel="noopener" class="btn btn-secondary">Open site ↗</a>
-    {{end}}{{end}}
+    {{if and .SiteURL .Frontend (eq .Frontend.State "running")}}
+    <a href="{{.SiteURL}}" target="_blank" rel="noopener" class="btn btn-secondary">Open site ↗</a>
+    {{end}}
   </div>
 </div>
 

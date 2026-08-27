@@ -18,6 +18,7 @@ services:
       DOCKER_BIN: docker
       DOKKU_CONTAINER: dokku
       BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
+      PUBLIC_PROTOCOL: ${PUBLIC_PROTOCOL:-http}
       ADMIN_USER: ${ADMIN_USER:-admin}
       # bcrypt of "admin"
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-$$2a$$10$$wSLpsqKwddxuOPon/l4aGuSQUAg6.cOqx2vnGuWWsayjtvyW5tZse}

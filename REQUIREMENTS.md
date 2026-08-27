@@ -77,7 +77,8 @@ Copy from [config.env.example](config.env.example) and fill:
   `PULL_TAG=latest`
 - `MIGRATE_CMD` — Atlas:
   `atlas migrate apply --dir file:///app/migrations --url "$DATABASE_URL"`
-- Optional: `PUBLIC_PROTOCOL=https|http` (controls only the `API_URL` string),
+- Optional: `PUBLIC_PROTOCOL=https|http` (controls the canonical public link
+  scheme and the frontend `API_URL`; production must use `https`),
   `NGINX_CLIENT_MAX_BODY_SIZE=50m`
 
 ---

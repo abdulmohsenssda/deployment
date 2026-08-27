@@ -118,6 +118,8 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 fi
 
+PUBLIC_PROTOCOL="${PUBLIC_PROTOCOL:-https}"
+
 if $NEED_CONFIG; then
     echo ""
     info "I'll ask a few questions to generate your config.env."
@@ -197,6 +199,7 @@ if $NEED_CONFIG; then
 # =============================================================================
 
 BASE_DOMAIN=${BASE_DOMAIN}
+PUBLIC_PROTOCOL=${PUBLIC_PROTOCOL}
 ACME_EMAIL=${ACME_EMAIL}
 NGINX_MODE=${NGINX_MODE}
 DOKKU_PORT=${DOKKU_PORT}
@@ -241,6 +244,7 @@ fi
 
 # Re-read all config values with defaults
 BASE_DOMAIN="${BASE_DOMAIN:?}"
+PUBLIC_PROTOCOL="${PUBLIC_PROTOCOL:-https}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 NGINX_MODE="${NGINX_MODE:-behind-nginx}"
 if [ "$NGINX_MODE" = "behind-nginx-shared" ]; then
@@ -269,6 +273,7 @@ echo "==========================================="
 echo "  Configuration"
 echo "==========================================="
 echo "  Domain:     *.${BASE_DOMAIN}"
+echo "  Public URL: ${PUBLIC_PROTOCOL}://${BASE_DOMAIN}"
 echo "  Email:      ${ACME_EMAIL:-not set}"
 echo "  Nginx:      ${NGINX_MODE}"
 echo "  Dokku:      ${DOKKU_HOSTNAME}:${DOKKU_PORT}"
@@ -526,9 +531,9 @@ if [ -n "$DOCKERHUB_USERNAME" ]; then
         log "  DOCKERHUB_USERNAME = $DOCKERHUB_USERNAME"
         log "  DOCKERHUB_TOKEN    = <your Docker Hub access token>"
         log "  WEBHOOK_SECRET     = $WEBHOOK_SECRET"
-        SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "<server-ip>")
-        log "  WEBHOOK_URL_DEV    = http://${SERVER_IP}:9999/deploy"
-        log "  WEBHOOK_URL_PROD   = http://${SERVER_IP}:9999/deploy"
+        WEBHOOK_URL="$(public_url "deploy.${BASE_DOMAIN}")/deploy"
+        log "  WEBHOOK_URL_DEV    = ${WEBHOOK_URL}"
+        log "  WEBHOOK_URL_PROD   = ${WEBHOOK_URL}"
     fi
     log ""
     log "  ── CI workflow files ──"

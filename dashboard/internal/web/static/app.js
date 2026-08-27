@@ -127,7 +127,7 @@
       const appName = typeof app.name === 'string' ? app.name : '';
       const name = tenant || appName.replace(/-(backend|frontend)$/, '');
       if (!map.has(name)) {
-        map.set(name, { name, apps: [], state: 'unknown', health: 'unknown', version: '', domain: '' });
+        map.set(name, { name, apps: [], state: 'unknown', health: 'unknown', version: '', domain: '', publicURL: '' });
       }
       map.get(name).apps.push(app);
     }
@@ -161,8 +161,12 @@
       const beDomains = appDomains(backend);
       t.domain = feDomains[0] || beDomains[0] || '';
 
+      t.publicURL = frontend?.public_url || backend?.public_url || '';
       const open = openStates[t.name] || {};
-      t.openURL = typeof open.url === 'string' ? open.url : '';
+      const discoveredURL = typeof open.url === 'string' ? open.url : '';
+      t.openURL = t.publicURL && (t.state === 'running' || t.state === 'mixed')
+        ? t.publicURL
+        : discoveredURL;
       t.openUnavailable = typeof open.unavailable === 'string' ? open.unavailable : '';
 
       tenants.push(t);

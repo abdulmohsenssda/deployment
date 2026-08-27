@@ -51,6 +51,7 @@ type App struct {
 	HTTPCode       string // Deprecated compatibility alias for Probe.HTTPCode.
 	Probe          HealthProbe
 	ContainerID    string
+	PublicURL   string
 }
 
 // HealthProbe describes the latest application HTTP probe independently from

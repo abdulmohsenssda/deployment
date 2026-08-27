@@ -10,8 +10,8 @@
   <div class="page-header-right">
     <span class="badge {{stateClr .State}} badge-lg" title="Lifecycle state">Lifecycle: {{.State}}</span>
     <span class="badge {{probeClr .Probe.Status}} badge-lg" title="{{probeMessage .Probe}}">Health: {{probeLabel .Probe}}</span>
-    {{if and .Domains (eq .State "running")}}
-    <a href="http://{{index .Domains 0}}" target="_blank" rel="noopener" class="btn btn-secondary">Open ↗</a>
+    {{if and .PublicURL (eq .State "running")}}
+    <a href="{{.PublicURL}}" target="_blank" rel="noopener" class="btn btn-secondary">Open ↗</a>
     {{end}}
   </div>
 </div>

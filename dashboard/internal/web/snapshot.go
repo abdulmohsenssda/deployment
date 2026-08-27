@@ -195,6 +195,7 @@ type appAPI struct {
 	HostPorts              string   `json:"host_ports"`
 	Procs                  string   `json:"procs"`
 	Domains                string   `json:"domains"`
+	PublicURL              string   `json:"public_url"`
 }
 
 type probeAPI struct {
@@ -258,6 +259,7 @@ func appAPIFrom(app dokku.App) appAPI {
 		HostPorts: app.HostPorts,
 		Procs:     strings.Join(app.Procs, ","),
 		Domains:   strings.Join(app.Domains, ","),
+		PublicURL: app.PublicURL,
 	}
 }
 

@@ -28,6 +28,7 @@ info()  { echo -e "${BLUE}[i]${NC} $*"; }
 
 CONFIG_FILE="${CONFIG_FILE:-$PROJECT_DIR/config.env}"
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+BASE_DOMAIN="${BASE_DOMAIN:-app.example.com}"
 
 NAME="${DEV_TENANT:-dev}"
 TAG="${DEV_TAG:-v0.0.1}"
@@ -96,9 +97,7 @@ fi
 
 echo ""
 log "Dev tenant ready."
-DEV_SCHEME="http"
-[ "${ENABLE_SSL:-false}" = "true" ] && DEV_SCHEME="https"
-info "URL:           ${DEV_SCHEME}://${NAME}.${BASE_DOMAIN:-app.example.com}"
+info "URL:           $(public_tenant_url "$NAME")"
 info "Auto-deploy:   pushes to the 'dev' branch → CI builds ${BACKEND_IMG} → auto-pull.sh deploys here every 2 min"
 info "Manual deploy: bash scripts/deploy-all.sh ${BACKEND_IMG} --tenant ${NAME}"
 info "Logs:          bash scripts/tail-logs.sh ${APP_BACKEND}"
