@@ -160,6 +160,30 @@ func TestBuildArgv_DeployAll_FrontendVersionExpandsPosImage(t *testing.T) {
 			t.Errorf("argv missing %q\nfull: %s", want, joined)
 		}
 	}
+
+}
+
+func TestBuildArgv_SetTenantImageHonorsSelectedRole(t *testing.T) {
+	setVersionTestEnv(t)
+	sc := scripts.Find("set-tenant-image.sh")
+	if sc == nil {
+		t.Fatal("set-tenant-image.sh not in catalog")
+	}
+	argv, err := buildArgv(sc, url.Values{
+		"_pos_name":     {"fresh"},
+		"type":          {"backend"},
+		"image_version": {"v0.0.2"},
+	})
+	if err != nil {
+		t.Fatalf("buildArgv: %v", err)
+	}
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--backend ssdawweq/ifritah-api:v0.0.2") {
+		t.Fatalf("backend pin missing: %s", joined)
+	}
+	if strings.Contains(joined, "--frontend ") {
+		t.Fatalf("frontend pin should not be emitted for backend selection: %s", joined)
+	}
 }
 
 func TestDashboardTemplatesParse(t *testing.T) {

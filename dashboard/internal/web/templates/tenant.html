@@ -98,8 +98,9 @@
         <input id="input-image_version" type="text" name="image_version"
                value="{{.DefaultVersion}}" placeholder="e.g. v1.2.3 or feature-branch"
                class="form-input" style="width:100%" autocomplete="off"
-               data-tag-search required aria-label="Image version">
+               data-tag-search data-image-scope="both" required aria-label="Image version">
         <datalist id="dl-image_version"></datalist>
+        <p data-image-compatibility class="field-help image-compatibility" hidden></p>
       </div>
       <button type="submit" class="btn btn-primary" aria-controls="tenant-out" aria-busy="false">Sync</button>
     </form>
@@ -382,6 +383,11 @@
     ev.preventDefault();
     const button = form.querySelector('button[type="submit"]');
     if (button?.disabled) return;
+    const imageInput = form.elements.image_version;
+    if (imageInput && !imageInput.checkValidity()) {
+      imageInput.reportValidity();
+      return;
+    }
     if (button) {
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');

@@ -916,3 +916,90 @@ test('create-tenant form defaults to dev tag', async ({ page }) => {
   const input = page.locator('input[name="image_version"]');
   await expect(input).toHaveValue('dev');
 });
+
+test('full tenant flow replaces an incompatible default with shared dev tag', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tags: ['latest', 'v0.0.1', 'dev'],
+      meta: [
+        { tag: 'latest', is_branch: false, frontend_only: true, in_both: false },
+        { tag: 'v0.0.1', is_branch: false, backend_only: true, in_both: false },
+        { tag: 'dev', is_branch: false, in_both: true },
+      ],
+      default_tag: 'v0.0.1',
+      coverage_available: true,
+    }),
+  }));
+  await page.goto(BASE + '/scripts/create-tenant');
+  await expect(page.locator('input[name="image_version"]')).toHaveValue('dev');
+});
+
+test('full tenant flow warns before selecting a partial latest tag', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tags: ['latest', 'v0.0.1', 'dev'],
+      meta: [
+        { tag: 'latest', is_branch: false, frontend_only: true, in_both: false },
+        { tag: 'v0.0.1', is_branch: false, backend_only: true, in_both: false },
+        { tag: 'dev', is_branch: false, in_both: true },
+      ],
+      default_tag: 'dev',
+      coverage_available: true,
+    }),
+  }));
+  await page.goto(BASE + '/scripts/create-tenant');
+  const input = page.locator('input[name="image_version"]');
+  await input.fill('latest');
+  const warning = page.locator('[data-image-compatibility]');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('not available for both backend and frontend');
+});
+
+test('role-specific flow accepts backend-only and frontend-only tags', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tags: ['latest', 'v0.0.1', 'dev'],
+      meta: [
+        { tag: 'latest', is_branch: false, frontend_only: true, in_both: false },
+        { tag: 'v0.0.1', is_branch: false, backend_only: true, in_both: false },
+        { tag: 'dev', is_branch: false, in_both: true },
+      ],
+      default_tag: 'dev',
+      coverage_available: true,
+    }),
+  }));
+  await page.goto(BASE + '/scripts/deploy-all');
+  const input = page.locator('input[name="image_version"]');
+  await input.fill('v0.0.1');
+  await expect(page.locator('[data-image-compatibility]')).toBeHidden();
+  await page.locator('select[name="type"]').selectOption('frontend');
+  await input.fill('latest');
+  await expect(page.locator('[data-image-compatibility]')).toBeHidden();
+});
+
+test('missing image tag is rejected with visible compatibility feedback', async ({ page }) => {
+  await login(page);
+  await page.route('**/api/image-tags**', route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || '';
+    const tags = query === 'missing' ? [] : ['dev'];
+    const meta = query === 'missing'
+      ? []
+      : [{ tag: 'dev', is_branch: false, in_both: true }];
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ tags, meta, default_tag: 'dev', coverage_available: true }),
+    });
+  });
+  await page.goto(BASE + '/scripts/create-tenant');
+  const input = page.locator('input[name="image_version"]');
+  await input.fill('missing');
+  const warning = page.locator('[data-image-compatibility]');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('was not found');
+});

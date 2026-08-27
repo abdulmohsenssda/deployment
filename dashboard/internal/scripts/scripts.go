@@ -37,6 +37,7 @@ type Field struct {
 	Suggest     []string // optional datalist values rendered next to the input for auto-suggest
 	Secret      bool     // when true, value is masked in the echoed command line and excluded from auto-fill persistence
 	Default     string   // default value pre-filled into the input on render (and used as the hidden value)
+	ImageScope  string   // image tag compatibility scope: "both", "backend", "frontend", or "role"
 }
 
 // ImageVersion describes one compatible backend/frontend image pair. The tag is
@@ -97,11 +98,9 @@ func DefaultImageVersion() string {
 	if v := strings.TrimSpace(os.Getenv("APP_IMAGE_VERSION_DEFAULT")); v != "" {
 		return v
 	}
-	versions := versionOptions()
-	if len(versions) > 0 {
-		return versions[0]
-	}
-	// No semver catalog configured — default to the rolling dev image.
+	// The rolling dev tag is the only safe default when the release catalog
+	// does not carry repository coverage metadata. The web layer still
+	// replaces it with the newest compatible tag when metadata is available.
 	return "dev"
 }
 
@@ -119,6 +118,19 @@ func ResolveImageVersion(tag string) (ImageVersion, bool) {
 }
 
 func imageVersionField(required bool) Field {
+	return imageVersionFieldForScope(required, "both")
+}
+
+func imageVersionFieldForScope(required bool, scope string) Field {
+	help := "Tag applied to both BACKEND_IMAGE and FRONTEND_IMAGE. Type to search available tags from Docker Hub."
+	switch scope {
+	case "backend":
+		help = "Tag applied to the backend image. Branch and PR tags are supported."
+	case "frontend":
+		help = "Tag applied to the frontend image. Branch and PR tags are supported."
+	case "role":
+		help = "Tag applied to the selected app type. Branch and PR tags are supported."
+	}
 	return Field{
 		Name:        "image_version",
 		Label:       "Image tag",
@@ -127,7 +139,8 @@ func imageVersionField(required bool) Field {
 		Placeholder: "e.g. dev, v1.2.3, or feature-my-branch",
 		Suggest:     []string{}, // populated client-side from /api/image-tags via datalist
 		Default:     DefaultImageVersion(),
-		Help:        "Tag applied to both BACKEND_IMAGE and FRONTEND_IMAGE. Type to search available tags from Docker Hub.",
+		ImageScope:  scope,
+		Help:        help,
 	}
 }
 
@@ -419,7 +432,7 @@ func Catalog() []Script {
 			Danger:  true,
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Required: true, Placeholder: "acme"},
-				imageVersionField(true),
+				imageVersionFieldForScope(true, "backend"),
 				{Name: "backend_image", Flag: "--backend-image", Type: "hidden"},
 				{Name: "admin_user", Label: "Admin username", Flag: "--env", Type: "text", Placeholder: "admin",
 					Default: "admin", Suggest: []string{"admin"}},
@@ -478,7 +491,7 @@ func Catalog() []Script {
 			Summary: "Roll one versioned backend or frontend image to all tenants (canary-first), or a single tenant.",
 			Danger:  true,
 			Fields: []Field{
-				imageVersionField(true),
+				imageVersionFieldForScope(true, "role"),
 				{Name: "_pos_image", Type: "hidden"},
 				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
 				{Name: "tenant", Label: "Single tenant", Flag: "--tenant", Type: "text"},
@@ -491,7 +504,7 @@ func Catalog() []Script {
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Required: true},
 				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
-				imageVersionField(false),
+				imageVersionFieldForScope(false, "role"),
 				{Name: "to", Flag: "--to", Type: "hidden"},
 				{Name: "list", Label: "List recent deploys", Flag: "--list", Type: "checkbox", Boolean: true},
 			},
@@ -501,7 +514,9 @@ func Catalog() []Script {
 			Summary: "Pin (or unpin) a tenant to a specific image.",
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Placeholder: "(omit with --list)"},
-				imageVersionField(false),
+				{Name: "type", Label: "App type", Type: "select", Options: []string{"both", "backend", "frontend"}, Default: "both",
+					Help: "Choose both only when the tag is published in both repositories."},
+				imageVersionFieldForScope(false, "role"),
 				{Name: "backend", Flag: "--backend", Type: "hidden"},
 				{Name: "frontend", Flag: "--frontend", Type: "hidden"},
 				{Name: "unpin", Label: "Unpin", Flag: "--unpin", Type: "checkbox", Boolean: true},
@@ -606,7 +621,9 @@ func Catalog() []Script {
 			Name: "setup-dev-tenant.sh", Title: "Setup dev tenant", Summary: "Idempotently create the dev tenant.",
 			Fields: []Field{
 				{Name: "name", Label: "Tenant name", Flag: "--name", Type: "text"},
-				{Name: "tag", Label: "Image tag", Flag: "--tag", Type: "text"},
+				{Name: "tag", Label: "Image tag", Flag: "--tag", Type: "text", Default: DefaultImageVersion(),
+					ImageScope: "role",
+					Help:       "The backend tag; enable the frontend option only when the same tag exists in both repositories."},
 				{Name: "frontend", Label: "Pin frontend too", Flag: "--frontend", Type: "checkbox", Boolean: true},
 			},
 		},

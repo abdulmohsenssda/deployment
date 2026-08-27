@@ -56,15 +56,17 @@
         <input type="password" name="{{.Name}}" placeholder="{{.Placeholder}}"
           autocomplete="new-password" {{if .Required}}required{{end}} class="form-input">
       {{else}}
-        {{if eq .Name "image_version"}}
+        {{if or (eq .Name "image_version") .ImageScope}}
         <div style="position:relative">
           <input type="text" name="{{.Name}}" placeholder="{{.Placeholder}}"
-            value="{{.Default}}" autocomplete="off"
+            value="{{if .ImageScope}}{{$.DefaultVersion}}{{else}}{{.Default}}{{end}}" autocomplete="off"
             id="input-{{.Name}}" data-tag-search
+            {{if .ImageScope}}data-image-scope="{{.ImageScope}}"{{end}}
             {{if .Required}}required{{end}} class="form-input">
           <datalist id="dl-{{.Name}}">
             {{range .Suggest}}<option value="{{.}}">{{end}}
           </datalist>
+          <p data-image-compatibility class="field-help image-compatibility" hidden></p>
         </div>
         {{else}}
         <input type="text" name="{{.Name}}" placeholder="{{.Placeholder}}"
@@ -225,23 +227,6 @@
   }
   applyQueryPrefill();
 
-  // Populate image_version datalist from Docker Hub live tags
-  const imgDl = document.getElementById('dl-image_version');
-  if (imgDl) {
-    fetch('/api/image-tags')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data?.tags?.length) return;
-        imgDl.innerHTML = '';
-        data.tags.forEach(t => {
-          const o = document.createElement('option');
-          o.value = t;
-          imgDl.appendChild(o);
-        });
-      })
-      .catch(() => {});
-  }
-
   function selectedRelease() {
     const select = form.elements.image_version;
     if (!select || !select.value) return null;
@@ -331,6 +316,11 @@
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    const imageInput = form.querySelector('[data-tag-search]');
+    if (imageInput && !imageInput.checkValidity()) {
+      imageInput.reportValidity();
+      return;
+    }
     void runCommand();
   });
 })();

@@ -48,7 +48,7 @@ flock -n 9 || exit 0
 DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifritah-api}}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifritah-web}}"
-DEV_TAG="${DEV_TAG:-v0.0.1}"
+DEV_TAG="${DEV_TAG:-dev}"
 DEV_TENANT="$(tenant_full_name "${DEV_TENANT:-dev}")" || exit 1
 DIGEST_DIR="/var/lib/auto-pull"
 mkdir -p "$DIGEST_DIR"

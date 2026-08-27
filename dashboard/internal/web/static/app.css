@@ -581,6 +581,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .req { color: var(--red); margin-left: 2px; }
 .field-flag { font-size: 10px; color: var(--text-dim); }
 .field-help { margin: 4px 0 0; font-size: 11px; color: var(--text-dim); }
+.image-compatibility { color: var(--amber); }
 .checkbox-label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
 .checkbox-label input { accent-color: var(--accent); width: 14px; height: 14px; }
 .form-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border); }

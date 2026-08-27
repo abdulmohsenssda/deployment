@@ -672,10 +672,14 @@
 
   // ── Image tag live-search dropdown ───────────────────────
   // API: GET /api/image-tags?q=<query>
-  //   → { tags: string[], meta: [{tag, is_branch, digest, last_pushed}] }
+  //   → { tags: string[], default_tag: string, coverage_available: bool,
+  //        meta: [{tag, is_branch, digest, last_pushed, in_both,
+  //                backend_only, frontend_only}] }
   //
   // Any <input data-tag-search> gets a live-search dropdown with:
   //   - Substring filtering as you type (debounced 180ms)
+  //   - A compatible default selected from the metadata response
+  //   - Client-side feedback before an incompatible tag can be submitted
   //   - For branch-name tags: "points to commit: <short-sha>" subtitle
   //   - Opens on focus with full list if field is empty
   //   - Visible, announced feedback when tags are unavailable or unmatched
@@ -694,6 +698,113 @@
         return { error: true };
       }
     }).catch(() => ({ error: true }));
+  }
+
+  function imageScope(input) {
+    const scope = input.dataset.imageScope || 'both';
+    if (scope !== 'role') return scope;
+    const type = input.form?.elements?.type?.value;
+    if (type === 'frontend') return 'frontend';
+    if (type === 'backend') return 'backend';
+    const frontend = input.form?.elements?.frontend;
+    if (frontend?.type === 'checkbox') return frontend.checked ? 'both' : 'backend';
+    return 'both';
+  }
+
+  function tagSupportsScope(meta, scope) {
+    if (scope === 'backend') return meta.in_both === true || meta.backend_only === true;
+    if (scope === 'frontend') return meta.in_both === true || meta.frontend_only === true;
+    return meta.in_both === true;
+  }
+
+  function scopeLabel(scope) {
+    if (scope === 'backend') return 'backend';
+    if (scope === 'frontend') return 'frontend';
+    return 'both backend and frontend';
+  }
+
+  function compatibilityElement(input) {
+    return input.closest('.field-row')?.querySelector('[data-image-compatibility]') ||
+      input.parentElement?.querySelector('[data-image-compatibility]');
+  }
+
+  function renderInputCompatibility(input, meta, coverageAvailable) {
+    const tag = input.value.trim();
+    const hint = compatibilityElement(input);
+    if (!tag) {
+      input.setCustomValidity('');
+      if (hint) hint.hidden = true;
+      return;
+    }
+    if (!coverageAvailable) {
+      const message = 'Image tag compatibility could not be verified. Refresh the page or try again before running.';
+      input.setCustomValidity(message);
+      if (hint) {
+        hint.textContent = '⚠ ' + message;
+        hint.hidden = false;
+      }
+      return;
+    }
+    if (!meta) {
+      input.setCustomValidity('');
+      if (hint) hint.hidden = true;
+      return;
+    }
+    const scope = imageScope(input);
+    const selected = meta.find(m => m.tag === tag);
+    if (selected && tagSupportsScope(selected, scope)) {
+      input.setCustomValidity('');
+      if (hint) hint.hidden = true;
+      return;
+    }
+
+    const message = selected
+      ? `Image tag "${tag}" is not available for ${scopeLabel(scope)} images. Choose a tag marked "both repos" or published for the selected role.`
+      : `Image tag "${tag}" was not found for the ${scopeLabel(scope)} image. Choose a published tag from the list.`;
+    input.setCustomValidity(message);
+    if (hint) {
+      hint.textContent = '⚠ ' + message;
+      hint.hidden = false;
+    }
+  }
+
+  function updateTagDatalist(input, data) {
+    const dl = document.getElementById('dl-' + input.name) ||
+      document.getElementById('dl-image_version') ||
+      document.getElementById('image-tag-list');
+    if (!dl) return;
+    dl.innerHTML = '';
+    (data?.tags || []).forEach(t => {
+      const o = document.createElement('option');
+      o.value = t;
+      dl.appendChild(o);
+    });
+  }
+
+  function applyCompatibleDefault(input, data) {
+    if (!data?.meta?.length || input.dataset.userChanged === '1') return;
+    const current = input.value.trim();
+    if (current !== '' && current !== input.defaultValue) return;
+    const scope = imageScope(input);
+    const preferred = data.default_tag || '';
+    const preferredMeta = data.meta.find(m => m.tag === preferred && tagSupportsScope(m, scope));
+    const compatible = preferredMeta || data.meta.find(m => tagSupportsScope(m, scope));
+    if (compatible && input.value.trim() !== compatible.tag) {
+      input.value = compatible.tag;
+    }
+  }
+
+  function consumeTagData(input, data, showDropdown) {
+    if (!data) return;
+    input._tagMeta = data.meta || [];
+    input._tagDefaultTag = data.default_tag || '';
+    applyCompatibleDefault(input, data);
+    updateTagDatalist(input, data);
+    const coverageAvailable = data.coverage_available !== false &&
+      Array.isArray(data.meta) &&
+      (input._tagMeta.length > 0 || input.value.trim() !== '');
+    renderInputCompatibility(input, input._tagMeta, coverageAvailable);
+    if (showDropdown) buildTagDropdown(input, input._tagMeta);
   }
 
   function removeTagDropdown(inputId) {
@@ -716,18 +827,6 @@
     if (!tags.length) return meta;
     const byTag = new Map(meta.map(m => [m.tag, m]));
     return tags.map(tag => byTag.get(tag) || { tag });
-  }
-
-  function updateTagDatalist(data) {
-    const dl = document.getElementById('dl-image_version') || document.getElementById('image-tag-list');
-    if (!dl) return;
-    dl.innerHTML = '';
-    const tags = Array.isArray(data?.tags) ? data.tags : [];
-    tags.filter(t => typeof t === 'string' && t).forEach(t => {
-      const o = document.createElement('option');
-      o.value = t;
-      dl.appendChild(o);
-    });
   }
 
   function tagResultMessage(query) {
@@ -780,9 +879,11 @@
       meta.slice(0, 40).forEach((m, index) => {
         const li = document.createElement('li');
         li.id = input.id + '-option-' + index;
-        li.className = 'tag-dropdown-item' + (m.in_both === false && (m.backend_only || m.frontend_only) ? ' tag-partial' : '');
+        const available = tagSupportsScope(m, imageScope(input));
+        li.className = 'tag-dropdown-item' + (available ? '' : ' tag-partial');
         li.setAttribute('role', 'option');
         li.setAttribute('aria-selected', 'false');
+        li.setAttribute('aria-disabled', available ? 'false' : 'true');
 
         const labelEl = document.createElement('span');
         labelEl.className = 'tag-dropdown-label';
@@ -798,21 +899,27 @@
           li.appendChild(sub);
         }
 
-        // Show warning if tag only exists in one repo
-        if (m.backend_only) {
+        // Show coverage for the selected flow. A role-specific action may use a
+        // tag that is intentionally absent from the other repository.
+        if (!available && imageScope(input) === 'both') {
           const warn = document.createElement('span');
           warn.className = 'tag-dropdown-warn';
-          warn.textContent = '⚠ backend only — frontend image missing';
+          warn.textContent = '⚠ not available for both backend + frontend';
           li.appendChild(warn);
-        } else if (m.frontend_only) {
+        } else if (m.backend_only && imageScope(input) !== 'frontend') {
           const warn = document.createElement('span');
           warn.className = 'tag-dropdown-warn';
-          warn.textContent = '⚠ frontend only — backend image missing';
+          warn.textContent = imageScope(input) === 'backend' ? '✓ backend image' : '⚠ backend only — frontend image missing';
+          li.appendChild(warn);
+        } else if (m.frontend_only && imageScope(input) !== 'backend') {
+          const warn = document.createElement('span');
+          warn.className = 'tag-dropdown-warn';
+          warn.textContent = imageScope(input) === 'frontend' ? '✓ frontend image' : '⚠ frontend only — backend image missing';
           li.appendChild(warn);
         } else if (m.in_both) {
           const ok = document.createElement('span');
           ok.className = 'tag-dropdown-ok';
-          ok.textContent = '✓ both repos';
+          ok.textContent = imageScope(input) === 'both' ? '✓ both repos' : '✓ ' + imageScope(input) + ' image';
           li.appendChild(ok);
         }
 
@@ -822,7 +929,10 @@
         });
         li.addEventListener('mousedown', e => {
           e.preventDefault();
+          if (li.getAttribute('aria-disabled') === 'true') return;
+          input.dataset.userChanged = '1';
           selectTag(input, li);
+          renderInputCompatibility(input, input._tagMeta, true);
         });
 
         ul.appendChild(li);
@@ -852,13 +962,23 @@
     function applyTagResult(q, id, result) {
       if (id !== requestID || input.value.trim() !== q) return;
       if (result.error) {
-        updateTagDatalist({ tags: [] });
+        input._tagMeta = [];
+        input._tagDefaultTag = '';
+        updateTagDatalist(input, { tags: [] });
+        renderInputCompatibility(input, [], false);
         buildTagDropdown(input, [], 'Unable to load image tags. Try again.', q, 'error');
         return;
       }
       const data = result.data || {};
       const entries = tagEntries(data);
-      updateTagDatalist(data);
+      input._tagMeta = data.meta || [];
+      input._tagDefaultTag = data.default_tag || '';
+      applyCompatibleDefault(input, data);
+      updateTagDatalist(input, data);
+      const coverageAvailable = data.coverage_available !== false &&
+        Array.isArray(data.meta) &&
+        (input._tagMeta.length > 0 || input.value.trim() !== '');
+      renderInputCompatibility(input, input._tagMeta, coverageAvailable);
       buildTagDropdown(input, entries, entries.length ? '' : tagResultMessage(q), q, entries.length ? '' : 'empty');
     }
 
@@ -868,6 +988,8 @@
     }
 
     input.addEventListener('input', () => {
+      input.dataset.userChanged = '1';
+      renderInputCompatibility(input, input._tagMeta, true);
       clearTimeout(debounce);
       const q = input.value.trim();
       const id = ++requestID;
@@ -881,6 +1003,16 @@
       const dd = document.getElementById('tag-dd-' + input.id);
       if (!dd || dd.dataset.query !== q) requestTags(q);
     });
+
+    const refreshScope = () => {
+      applyCompatibleDefault(input, {
+        meta: input._tagMeta || [],
+        default_tag: input._tagDefaultTag || '',
+      });
+      renderInputCompatibility(input, input._tagMeta, true);
+    };
+    input.form?.elements?.type?.addEventListener('change', refreshScope);
+    input.form?.elements?.frontend?.addEventListener('change', refreshScope);
 
     input.addEventListener('blur', () => {
       setTimeout(() => removeTagDropdown(input.id), 200);
@@ -903,10 +1035,17 @@
         dd.querySelector('.tag-dropdown-item.active')?.scrollIntoView({ block: 'nearest' });
       } else if (e.key === 'Enter' && active) {
         e.preventDefault();
+        if (active.getAttribute('aria-disabled') === 'true') return;
         selectTag(input, active);
       } else if (e.key === 'Escape') {
         removeTagDropdown(input.id);
       }
+    });
+
+    // Resolve the initial default from repository coverage metadata. This is
+    // deliberately asynchronous so pages still render when Docker Hub is down.
+    fetchTagData('').then(result => {
+      if (!result.error) consumeTagData(input, result.data || {}, false);
     });
   }
 
@@ -918,7 +1057,12 @@
   if (legacyDatalist) {
     fetchTagData('').then(result => {
       if (result.error) return;
-      updateTagDatalist(result.data);
+      legacyDatalist.innerHTML = '';
+      (result.data?.tags || []).forEach(tag => {
+        const option = document.createElement('option');
+        option.value = tag;
+        legacyDatalist.appendChild(option);
+      });
     });
   }
 

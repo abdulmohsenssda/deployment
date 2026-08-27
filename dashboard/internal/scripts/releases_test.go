@@ -51,3 +51,12 @@ func TestVersionCatalogCanLoadReleaseFile(t *testing.T) {
 		t.Fatalf("expected release metadata, got %+v", releases[0])
 	}
 }
+
+func TestDefaultImageVersionUsesSharedDevTagWithoutOverride(t *testing.T) {
+	t.Setenv("APP_IMAGE_VERSION_DEFAULT", "")
+	t.Setenv("APP_IMAGE_VERSIONS", "v0.0.1")
+
+	if got := DefaultImageVersion(); got != "dev" {
+		t.Fatalf("DefaultImageVersion() = %q, want dev", got)
+	}
+}

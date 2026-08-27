@@ -53,15 +53,22 @@ runtime besides the docker socket.
 | `DASHBOARD_ENV_FILE`  | no       | —               |
 | `TENANT_NAME_PREFIX`  | no       | —               |
 
-Version picker values are exact SemVer image tags such as `v0.0.1`, not channels such as
-`latest`, `stable`, or `dev`. The dashboard deploys the selected tag to both apps:
+Version picker values are Docker image tags. Full tenant flows (create, update, and
+tenant sync) default to `dev`, because that tag is published for both apps in the
+branch-image workflow. The picker also supports release, channel, branch, and PR tags;
+select a tag marked `both repos` for a full tenant flow:
 
 ```sh
 BACKEND_IMAGE=ssdawweq/ifritah-api
 FRONTEND_IMAGE=ssdawweq/ifritah-web
 APP_IMAGE_VERSIONS=v0.0.1
-APP_IMAGE_VERSION_DEFAULT=v0.0.1
+APP_IMAGE_VERSION_DEFAULT=dev
 ```
+
+Role-specific actions (database init, deploy, rollback, and image pinning)
+identify the backend or frontend target and may use a tag published only for
+that repository. The dashboard rejects missing or incompatible tags before
+starting a runner.
 
 Use `TENANT_NAME_PREFIX` when dev and prod dashboards share one server or MySQL. With `TENANT_NAME_PREFIX=dev-`, creating tenant `acme` creates Dokku apps `dev-acme-backend` / `dev-acme-frontend` and database `tenant_dev_acme`. Use `TENANT_NAME_PREFIX=prod-` for prod so prod creates `tenant_prod_acme` instead. For two dashboards on one server, set this in each dashboard's `dashboard.env`; keep the shared `config.env` prefix unset or point each dashboard at a matching `DEPLOY_CONFIG_FILE`.
 

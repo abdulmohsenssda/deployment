@@ -10,7 +10,7 @@
 # Usage:
 #   bash scripts/setup-dev-tenant.sh                 # use config.env defaults
 #   bash scripts/setup-dev-tenant.sh --name dev      # override tenant name
-#   bash scripts/setup-dev-tenant.sh --tag v0.0.1    # override dev tag
+#   bash scripts/setup-dev-tenant.sh --tag v1.2.3    # override dev tag
 #   bash scripts/setup-dev-tenant.sh --frontend      # also pin frontend to DEV_TAG
 # =============================================================================
 
@@ -31,7 +31,7 @@ CONFIG_FILE="${CONFIG_FILE:-$PROJECT_DIR/config.env}"
 BASE_DOMAIN="${BASE_DOMAIN:-app.example.com}"
 
 NAME="${DEV_TENANT:-dev}"
-TAG="${DEV_TAG:-v0.0.1}"
+TAG="${DEV_TAG:-dev}"
 PIN_FRONTEND=false
 
 while [[ $# -gt 0 ]]; do

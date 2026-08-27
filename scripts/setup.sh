@@ -217,7 +217,7 @@ MYSQL_MASTER_DB=${MYSQL_MASTER_DB}
 
 # Docker Hub
 DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
-PULL_TAG=latest
+PULL_TAG=dev
 ENVFILE
 
     # Optional sections
@@ -487,7 +487,7 @@ if prompt_yn "Create your first tenant now?" "y"; then
         TENANT_CMD="$SCRIPT_DIR/create-tenant.sh $TENANT_NAME --config $CONFIG_FILE"
 
         if [ -n "$DOCKERHUB_USERNAME" ]; then
-            RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-v0.0.1}}"
+            RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-dev}}"
             BACKEND_IMG="${DOCKERHUB_USERNAME}/api:${RELEASE_TAG}"
             FRONTEND_IMG="${DOCKERHUB_USERNAME}/web:${RELEASE_TAG}"
 
@@ -542,7 +542,7 @@ if [ -n "$DOCKERHUB_USERNAME" ]; then
 fi
 log ""
 log "  Create more tenants:"
-log "    sudo ./scripts/create-tenant.sh <name> --backend-image ${DOCKERHUB_USERNAME:-youruser}/api:${APP_IMAGE_VERSION_DEFAULT:-v0.0.1} --frontend-image ${DOCKERHUB_USERNAME:-youruser}/web:${APP_IMAGE_VERSION_DEFAULT:-v0.0.1}"
+log "    sudo ./scripts/create-tenant.sh <name> --backend-image ${DOCKERHUB_USERNAME:-youruser}/api:${APP_IMAGE_VERSION_DEFAULT:-dev} --frontend-image ${DOCKERHUB_USERNAME:-youruser}/web:${APP_IMAGE_VERSION_DEFAULT:-dev}"
 log ""
 log "==========================================="
 echo ""

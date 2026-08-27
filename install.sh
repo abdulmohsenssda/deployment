@@ -22,7 +22,7 @@
 #   --mysql-password     MYSQL_ROOT_PASSWORD  (required)
 #   --master-db          MYSQL_MASTER_DB      (default: zatca_master)
 #   --dockerhub-user     DOCKERHUB_USERNAME   (required for auto-pull)
-#   --pull-tag           PULL_TAG             (default: latest)
+#   --pull-tag           PULL_TAG             (default: dev)
 #   --dev-tenant         DEV_TENANT           (default: dev)
 #   --dev-tag            DEV_TAG              (default: dev)
 #   --webhook-secret     WEBHOOK_SECRET       (default: auto-generated)
@@ -71,7 +71,7 @@ fi
 : "${MYSQL_MASTER_DB:=zatca_master}"
 : "${MYSQL_TENANT_HOST:=%}"
 : "${DOCKERHUB_USERNAME:=}"
-: "${PULL_TAG:=latest}"
+: "${PULL_TAG:=dev}"
 : "${APPS:=backend frontend}"
 : "${APP_IMAGE_backend:=api}"
 : "${APP_IMAGE_frontend:=web}"
@@ -201,5 +201,5 @@ DEV_SCHEME="http"
 [ "${ENABLE_SSL:-false}" = "true" ] && DEV_SCHEME="https"
 info "Dev URL:        ${DEV_SCHEME}://${DEV_TENANT}.${BASE_DOMAIN}"
 info "Auto-deploy:    webhook can deploy the exact VERSION tag from your app repo"
-info "Manual prod:    bash scripts/deploy-all.sh ${DOCKERHUB_USERNAME:-<user>}/api:v0.0.1 --tenant <client>"
+info "Manual prod:    bash scripts/deploy-all.sh ${DOCKERHUB_USERNAME:-<user>}/api:<release-tag> --tenant <client>"
 info "Logs:           bash scripts/tail-logs.sh ${DEV_TENANT}-backend"

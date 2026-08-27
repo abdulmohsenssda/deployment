@@ -74,7 +74,7 @@ Copy from [config.env.example](config.env.example) and fill:
 - `MYSQL_TENANT_HOST=172.%` — docker bridge subnet; **must match** the host
   pattern used in [scripts/remove-tenant.sh](scripts/remove-tenant.sh)
 - `DOCKERHUB_USERNAME`, optional `BACKEND_IMAGE` / `FRONTEND_IMAGE`,
-  `PULL_TAG=latest`
+  `PULL_TAG=dev` (the shared backend/frontend branch tag)
 - `MIGRATE_CMD` — Atlas:
   `atlas migrate apply --dir file:///app/migrations --url "$DATABASE_URL"`
 - Optional: `PUBLIC_PROTOCOL=https|http` (controls the canonical public link
