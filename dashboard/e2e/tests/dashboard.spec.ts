@@ -346,6 +346,75 @@ test('commands grid shows command cards', async ({ page }) => {
   await expect(page.locator('.command-card').first()).toBeVisible();
 });
 
+test('command network failure shows an error and restores controls', async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await login(page);
+  await page.route('**/scripts/status/run', route => route.abort('failed'));
+  await page.goto(BASE + '/scripts/status');
+
+  const runButton = page.locator('#run-form button[type="submit"]');
+  await runButton.click();
+  await expect(page.locator('#run-status')).toContainText('Network error');
+  await expect(runButton).toBeEnabled();
+  expect(pageErrors).toHaveLength(0);
+});
+
+test('command non-2xx response shows the server failure and restores controls', async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await login(page);
+  await page.route('**/scripts/status/run', route => route.fulfill({
+    status: 503,
+    contentType: 'text/plain',
+    body: 'runner unavailable',
+  }));
+  await page.goto(BASE + '/scripts/status');
+
+  const runButton = page.locator('#run-form button[type="submit"]');
+  await runButton.click();
+  await expect(page.locator('#run-status')).toContainText('HTTP 503');
+  await expect(page.locator('#run-status')).toContainText('runner unavailable');
+  await expect(runButton).toBeEnabled();
+  expect(pageErrors).toHaveLength(0);
+});
+
+test('malformed command stream shows a failure and restores controls', async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await login(page);
+  await page.route('**/scripts/status/run', route => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    body: 'not an SSE event\n\n',
+  }));
+  await page.goto(BASE + '/scripts/status');
+
+  const runButton = page.locator('#run-form button[type="submit"]');
+  await runButton.click();
+  await expect(page.locator('#run-status')).toContainText('stream was malformed');
+  await expect(runButton).toBeEnabled();
+  expect(pageErrors).toHaveLength(0);
+});
+
+test('closed command stream shows a failure and restores controls', async ({ page }) => {
+  const pageErrors: Error[] = [];
+  page.on('pageerror', error => pageErrors.push(error));
+  await login(page);
+  await page.route('**/scripts/status/run', route => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream',
+    body: 'data: started\n\n',
+  }));
+  await page.goto(BASE + '/scripts/status');
+
+  const runButton = page.locator('#run-form button[type="submit"]');
+  await runButton.click();
+  await expect(page.locator('#run-status')).toContainText('closed before completion');
+  await expect(runButton).toBeEnabled();
+  expect(pageErrors).toHaveLength(0);
+});
+
 test('no QA-specific wording anywhere in the UI', async ({ page }) => {
   await login(page);
   const body = await page.textContent('body');

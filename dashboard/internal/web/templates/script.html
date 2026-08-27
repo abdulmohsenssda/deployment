@@ -81,7 +81,7 @@
     {{end}}
     {{end}}
     <div class="form-footer">
-      <button class="btn btn-primary">▶ Run</button>
+      <button type="submit" class="btn btn-primary">▶ Run</button>
       <button type="button" id="clear-out" class="btn btn-secondary">Clear output</button>
       {{if .Danger}}<span class="danger-note">Confirmation will be requested before execution.</span>{{end}}
     </div>
@@ -100,11 +100,14 @@
     <div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>
   </div>
 </div>
+<div id="run-status" class="alert" role="status" aria-live="polite" hidden></div>
 
+<script src="/static/command-run.js"></script>
 <script>
 (function () {
   const form = document.getElementById('run-form');
   const out = document.getElementById('out');
+  const status = document.getElementById('run-status');
   const danger = {{.Danger}};
   const slug = '{{.Slug}}';
   const STORE_KEY = 'script-form:' + slug;
@@ -157,6 +160,14 @@
   }
 
   document.getElementById('clear-out').onclick = clearOutput;
+
+  function setStatus(message, kind) {
+    if (!status) return;
+    status.hidden = !message;
+    status.textContent = message;
+    status.className = 'alert ' + (kind === 'failure' ? 'badge-danger' :
+      kind === 'success' ? 'badge-success' : 'alert-warn');
+  }
 
   function restoreSaved() {
     let saved = {};
@@ -245,48 +256,56 @@
 
   restoreOutput();
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    if (danger && !confirm('This script may modify or delete data. Continue?')) return;
-    const release = selectedRelease();
-    if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
-    persistOnSubmit();
-    const fd = new FormData(form);
-    setOutputState('running', 'Running — streaming command output…');
-    appendLine('');
-    appendLine('--- run ' + new Date().toISOString() + ' ---');
+  async function runCommand() {
     try {
-      const res = await fetch('/scripts/{{.Slug}}/run', { method: 'POST', body: new URLSearchParams(fd) });
-      if (!res.ok) {
-        appendLine('✖ ' + res.status + ' ' + await res.text());
-        setOutputState('failure', 'Failed — the command returned HTTP ' + res.status + '.');
-        return;
-      }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '', linePrefix = '', streamFailed = false;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const block = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          for (const ln of block.split('\n')) {
-            if (ln.startsWith('data: ')) { appendLine(linePrefix + ln.slice(6)); linePrefix = ''; }
-            else if (ln.startsWith('event: error')) { streamFailed = true; linePrefix = '✖ '; }
-            else if (ln.startsWith('event: done')) appendLine('', false);
+      if (danger && !confirm('This script may modify or delete data. Continue?')) return;
+      const release = selectedRelease();
+      if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
+
+      persistOnSubmit();
+      const fd = new FormData(form);
+      setOutputState('running', 'Running — streaming command output…');
+      appendLine('');
+      appendLine('--- run ' + new Date().toISOString() + ' ---');
+      setStatus('Running command…', 'running');
+
+      let streamError = '';
+      const result = await window.commandRun.execute('/scripts/{{.Slug}}/run', {
+        method: 'POST',
+        body: new URLSearchParams(fd),
+      }, {
+        onEvent: event => {
+          if (event.type === 'error') {
+            streamError = event.data || 'The command reported a failure.';
+            appendLine('✖ ' + streamError);
+          } else if (event.type === 'done') {
+            appendLine('');
+          } else if (event.data) {
+            appendLine(event.data);
           }
           out.scrollTop = out.scrollHeight;
-        }
+        },
+      });
+
+      if (result.failed) {
+        const message = result.error || streamError || 'The command reported a failure.';
+        setOutputState('failure', 'Failed — ' + message);
+        setStatus('Command failed: ' + message, 'failure');
+      } else {
+        setOutputState('success', 'Success — command completed.');
+        setStatus('Command completed.', 'success');
       }
-      if (streamFailed) setOutputState('failure', 'Failed — the command reported an error.');
-      else setOutputState('success', 'Success — command completed.');
     } catch (err) {
-      appendLine('✖ Command failed: ' + (err && err.message ? err.message : err));
-      setOutputState('failure', 'Failed — the command stream could not be completed.');
+      const message = err && err.message ? err.message : 'Command failed unexpectedly. Please try again.';
+      appendLine('✖ ' + message);
+      setOutputState('failure', 'Failed — ' + message);
+      setStatus(message, 'failure');
     }
+  }
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    void runCommand();
   });
 })();
 </script>
