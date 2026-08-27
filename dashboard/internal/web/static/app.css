@@ -705,6 +705,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .alert { padding: 10px 14px; border-radius: var(--radius-lg); font-size: 13px; margin-bottom: 16px; }
 .alert-warn { background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); }
 .alert-warn code { color: var(--text-muted); }
+.alert-success { background: var(--green-bg); border: 1px solid var(--green-bd); color: var(--green); }
+.alert-danger { background: var(--red-bg); border: 1px solid var(--red-bd); color: var(--red); }
 
 /* ── Toast ───────────────────────────────────────────────── */
 .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
@@ -782,8 +784,14 @@ input, select, textarea { font: inherit; color: inherit; }
 .action-chip.danger:hover { background: rgba(248,81,73,.2); }
 
 /* ── Password page ───────────────────────────────────────── */
-.form-page { max-width:420px; }
+.form-page { width:100%; max-width:420px; min-width:0; }
 .form-page .panel { padding:20px; }
+.form-page .page-header { margin-bottom:16px; }
+.password-form { width:100%; min-width:0; }
+.password-field { display:block; min-width:0; }
+.password-input { display:block; width:100%; min-width:0; max-width:100%; }
+.password-alert { overflow-wrap:anywhere; }
+.password-actions { min-width:0; }
 
 /* ── Login page ──────────────────────────────────────────── */
 .login-wrap { min-height:100vh;display:flex;align-items:center;justify-content:center; }
@@ -812,6 +820,13 @@ input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 480px) {
   .hero-actions .command-link,
   .release-actions .action-chip { flex-basis: 100%; }
+}
+
+@media (max-width: 480px) {
+  .password-page { max-width:none; }
+  .password-page .password-form { padding:16px; }
+  .password-actions { align-items:stretch; }
+  .password-submit { width:100%; }
 }
 
 /* ── Image tag live-search dropdown ──────────────────────── */

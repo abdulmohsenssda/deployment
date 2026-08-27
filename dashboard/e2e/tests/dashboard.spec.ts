@@ -211,6 +211,62 @@ test('password page is accessible', async ({ page }) => {
   await expect(page.locator('h1, .page-title')).toBeVisible();
 });
 
+test('password form stacks without overlap on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto(BASE + '/settings/password?e=match');
+
+  await expect(page.locator('[role="alert"]')).toContainText('New passwords do not match.');
+  await expect(page.locator('form.password-form')).toHaveAttribute('method', 'post');
+  await expect(page.locator('input[name="current_password"]')).toHaveAttribute('type', 'password');
+  await expect(page.locator('input[name="current_password"]')).toHaveAttribute('autocomplete', 'current-password');
+  await expect(page.locator('input[name="new_password"]')).toHaveAttribute('autocomplete', 'new-password');
+  await expect(page.locator('input[name="confirm_password"]')).toHaveAttribute('minlength', '8');
+
+  const geometry = await page.evaluate(() => {
+    const rect = (selector: string, root: ParentNode = document) => {
+      const element = root.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`missing ${selector}`);
+      const box = element.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+    };
+    const fields = Array.from(document.querySelectorAll<HTMLElement>('.password-field')).map(field => ({
+      label: rect('.field-label', field),
+      input: rect('.password-input', field),
+    }));
+    const form = rect('.password-form');
+    const alert = rect('[role="alert"]');
+    const submit = rect('.password-submit');
+    return {
+      width: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      form,
+      alert,
+      submit,
+      fields,
+    };
+  });
+
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
+  expect(geometry.form.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.form.right).toBeLessThanOrEqual(geometry.width);
+  expect(geometry.form.top).toBeGreaterThanOrEqual(geometry.alert.bottom);
+  expect(geometry.submit.left).toBeGreaterThanOrEqual(geometry.form.left);
+  expect(geometry.submit.right).toBeLessThanOrEqual(geometry.form.right);
+
+  for (const field of geometry.fields) {
+    expect(field.label.bottom).toBeLessThanOrEqual(field.input.top);
+    expect(field.input.left).toBeGreaterThanOrEqual(geometry.form.left);
+    expect(field.input.right).toBeLessThanOrEqual(geometry.form.right);
+  }
+
+  for (let index = 1; index < geometry.fields.length; index += 1) {
+    expect(geometry.fields[index].label.top).toBeGreaterThanOrEqual(geometry.fields[index - 1].input.bottom);
+  }
+  const lastField = geometry.fields[geometry.fields.length - 1];
+  expect(geometry.submit.top).toBeGreaterThanOrEqual(lastField.input.bottom);
+});
+
 // ── sign out ──────────────────────────────────────────────────────────────────
 
 test('sign out redirects to login', async ({ page }) => {
