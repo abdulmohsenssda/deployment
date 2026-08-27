@@ -53,23 +53,13 @@
 
 <!-- Live log stream -->
 <div class="panel">
-  <div class="panel-title">Live logs</div>
-  <pre id="logs" class="terminal"></pre>
+  <div class="panel-title log-stream-header">
+    <span>Live logs</span>
+    <span id="log-stream-status" class="badge badge-info" role="status" aria-live="polite">Connecting…</span>
+    <button id="log-stream-retry" class="btn btn-secondary" type="button" hidden>Retry now</button>
+  </div>
+  <pre id="logs" class="terminal" data-stream-url="/apps/{{.Name}}/logs"></pre>
 </div>
-
-<script>
-(function () {
-  const pre = document.getElementById('logs');
-  const es = new EventSource('/apps/{{.Name}}/logs');
-  es.onmessage = (ev) => {
-    const stuck = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
-    pre.textContent += ev.data + '\n';
-    if (stuck) pre.scrollTop = pre.scrollHeight;
-  };
-  es.onerror = () => { pre.textContent += '\n[stream closed]\n'; es.close(); };
-  window.addEventListener('beforeunload', () => es.close());
-})();
-</script>
 {{end}}
 {{end}}
 

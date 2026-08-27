@@ -263,6 +263,130 @@
     if (sStopEl) { sStopEl.textContent = stopped + ' stopped'; sStopEl.style.display = stopped > 0 ? '' : 'none'; }
   }
 
+  // ── App log stream ───────────────────────────────────────
+  // EventSource reconnects are managed here so a failed stream cannot leave
+  // the browser's implicit retry loop running alongside our own timer.
+  function initLogStream() {
+    const pre = document.getElementById('logs');
+    if (!pre) return;
+
+    const status = document.getElementById('log-stream-status');
+    const retryButton = document.getElementById('log-stream-retry');
+    const url = pre.dataset.streamUrl;
+    if (!url) return;
+
+    const maxRetries = 5;
+    const initialBackoff = 1000;
+    const maxBackoff = 10000;
+    let stream = null;
+    let retryTimer = null;
+    let retryCount = 0;
+    let closed = false;
+
+    const statusClasses = {
+      connecting: 'badge-info',
+      connected: 'badge-success',
+      reconnecting: 'badge-warn',
+      disconnected: 'badge-danger',
+    };
+
+    function setStatus(kind, text) {
+      if (status) {
+        status.textContent = text;
+        status.className = 'badge ' + (statusClasses[kind] || statusClasses.connecting);
+      }
+      if (retryButton) retryButton.hidden = kind === 'connected' || kind === 'connecting';
+    }
+
+    function closeStream() {
+      const current = stream;
+      stream = null;
+      if (!current) return;
+      current.onopen = null;
+      current.onmessage = null;
+      current.onerror = null;
+      current.close();
+    }
+
+    function scheduleReconnect() {
+      if (closed || retryTimer !== null) return;
+
+      retryCount += 1;
+      if (retryCount > maxRetries) {
+        setStatus('disconnected', 'Disconnected');
+        return;
+      }
+
+      const delay = Math.min(initialBackoff * (2 ** (retryCount - 1)), maxBackoff);
+      const seconds = Math.max(1, Math.ceil(delay / 1000));
+      setStatus('reconnecting', 'Reconnecting in ' + seconds + 's…');
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        connect();
+      }, delay);
+    }
+
+    function connect() {
+      if (closed || stream !== null) return;
+      setStatus('connecting', 'Connecting…');
+
+      let next;
+      try {
+        next = new EventSource(url);
+      } catch (_) {
+        scheduleReconnect();
+        return;
+      }
+      stream = next;
+
+      next.onopen = () => {
+        if (stream !== next || closed) return;
+        retryCount = 0;
+        setStatus('connected', 'Connected');
+      };
+      next.onmessage = ev => {
+        if (stream !== next || closed) return;
+        const stuck = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+        pre.textContent += ev.data + '\n';
+        if (stuck) pre.scrollTop = pre.scrollHeight;
+      };
+      next.onerror = () => {
+        if (stream !== next || closed) return;
+        closeStream();
+        scheduleReconnect();
+      };
+    }
+
+    function retryNow() {
+      if (closed) return;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      retryCount = 0;
+      closeStream();
+      connect();
+    }
+
+    retryButton?.addEventListener('click', retryNow);
+
+    const shutdown = () => {
+      if (closed) return;
+      closed = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      closeStream();
+    };
+    window.addEventListener('beforeunload', shutdown, { once: true });
+    window.addEventListener('pagehide', shutdown, { once: true });
+
+    connect();
+  }
+
+  initLogStream();
+
   filterEl?.addEventListener('input', () => {
     filterVal = filterEl.value.trim();
     renderTable(allTenants);

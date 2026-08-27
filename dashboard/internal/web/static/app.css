@@ -335,6 +335,9 @@ input, select, textarea { font: inherit; color: inherit; }
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
 }
+.log-stream-header { display: flex; align-items: center; gap: 8px; }
+.log-stream-header > span:first-child { margin-right: auto; }
+.log-stream-header .btn { height: 26px; padding: 0 10px; font-size: 11px; }
 
 /* ── Status summary strip ─────────────────────────────────── */
 .status-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
