@@ -42,6 +42,7 @@ with a `v` prefix, for example `vX.X.X`. The starting version is `v0.0.1`.
 |---|---|---|
 | `VERSION` | `:vX.X.X` | Primary deploy tag. Re-running CI with the same version overwrites this tag. |
 | commit SHA | `:<sha>` | Immutable reference for rollback/debug. |
+| `dev` branch | `:dev` | Mutable development alias published by the regular deploy workflow. |
 
 Backend and frontend must use the same `VERSION` value for a compatible release.
 The dashboard deploys one selected version tag to both images.

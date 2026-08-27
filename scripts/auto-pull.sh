@@ -50,6 +50,7 @@ BACKEND_IMAGE="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifri
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifritah-web}}"
 DEV_TAG="${DEV_TAG:-dev}"
 DEV_TENANT="$(tenant_full_name "${DEV_TENANT:-dev}")" || exit 1
+TENANT_STATE_DIR="${TENANT_STATE_DIR:-/opt/tenant-state}"
 DIGEST_DIR="/var/lib/auto-pull"
 mkdir -p "$DIGEST_DIR"
 
@@ -67,18 +68,37 @@ fi
 # for specific tenants/environments without turning off the cron by listing
 # tenant names (comma/space separated) in AUTO_REDEPLOY_DISABLED in config.env.
 # The names are matched after prefix normalization so either "dev" or
-# "dev-dev" works. This is the allow-listed equivalent of the per-environment
-# "disable auto-redeploy" checkbox surfaced in the dashboard.
+# "dev-dev" works. The dashboard's persistent TENANT_STATE_DIR setting is
+# checked as well, so the per-tenant checkbox is enforced by this host-side
+# poller rather than only being cosmetic UI state.
 auto_redeploy_enabled() {
     local tenant="$1" raw item norm
     raw="${AUTO_REDEPLOY_DISABLED:-}"
-    [ -z "$raw" ] && return 0
-    for item in ${raw//,/ }; do
-        norm="$(tenant_full_name "$item" 2>/dev/null || echo "$item")"
-        if [ "$norm" = "$tenant" ] || [ "$item" = "$tenant" ]; then
+    if [ -n "$raw" ]; then
+        for item in ${raw//,/ }; do
+            norm="$(tenant_full_name "$item" 2>/dev/null || echo "$item")"
+            if [ "$norm" = "$tenant" ] || [ "$item" = "$tenant" ]; then
+                return 1
+            fi
+        done
+    fi
+
+    local state_file="$TENANT_STATE_DIR/${tenant}.json"
+    if [ -e "$state_file" ]; then
+        if [ ! -r "$state_file" ]; then
+            warn "Cannot read tenant auto-redeploy state: $state_file — skipping deploy"
             return 1
         fi
-    done
+        if grep -Eq '"auto_redeploy"[[:space:]]*:[[:space:]]*false' "$state_file"; then
+            info "Auto-redeploy disabled for $tenant (dashboard setting) — skipping."
+            return 1
+        fi
+        if grep -Eq '"auto_redeploy"[[:space:]]*:' "$state_file" &&
+            ! grep -Eq '"auto_redeploy"[[:space:]]*:[[:space:]]*true' "$state_file"; then
+            warn "Invalid tenant auto-redeploy state: $state_file — skipping deploy"
+            return 1
+        fi
+    fi
     return 0
 }
 

@@ -26,6 +26,7 @@ type backupManifest struct {
 	Timestamp     string `json:"timestamp"`
 	Origin        string `json:"origin"`
 	Owner         string `json:"owner"`
+	Label         string `json:"label,omitempty"`
 	FilesArtifact string `json:"files_artifact"`
 	DBArtifact    string `json:"db_artifact"`
 	Verified      bool   `json:"verified"`
@@ -168,10 +169,16 @@ func (s *server) handleTenantBackup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	_ = r.ParseForm()
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	label := strings.TrimSpace(r.FormValue("label"))
-	if label != "" {
-		_ = s.tenantState.SetBackupLabel(tenant, label)
+	if len(label) > 120 || strings.IndexFunc(label, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) >= 0 {
+		http.Error(w, "backup label must be at most 120 characters and contain no control characters", http.StatusBadRequest)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
@@ -186,6 +193,9 @@ func (s *server) handleTenantBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	argv := []string{tenant, "--origin", "user", "--owner", "dashboard"}
+	if label != "" {
+		argv = append(argv, "--label", label)
+	}
 	if err := s.runner.Run(ctx, w, "backup-tenant.sh", argv); err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 	}

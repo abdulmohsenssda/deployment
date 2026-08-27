@@ -493,7 +493,7 @@ func Catalog() []Script {
 			Fields: []Field{
 				imageVersionFieldForScope(true, "role"),
 				{Name: "_pos_image", Type: "hidden"},
-				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
+				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}, Default: "backend"},
 				{Name: "tenant", Label: "Single tenant", Flag: "--tenant", Type: "text"},
 				{Name: "skip_canary", Label: "Skip canary", Flag: "--skip-canary", Type: "checkbox", Boolean: true},
 			},
@@ -503,7 +503,7 @@ func Catalog() []Script {
 			Summary: "Roll a tenant back to a previous image.", Danger: true,
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Required: true},
-				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
+				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}, Default: "backend"},
 				imageVersionFieldForScope(false, "role"),
 				{Name: "to", Flag: "--to", Type: "hidden"},
 				{Name: "list", Label: "List recent deploys", Flag: "--list", Type: "checkbox", Boolean: true},

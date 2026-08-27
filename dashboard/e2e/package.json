@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
     "test:log-retention": "playwright test tests/log-retention.spec.ts"
   },
   "keywords": [],

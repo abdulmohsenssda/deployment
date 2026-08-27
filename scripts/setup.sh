@@ -188,6 +188,8 @@ if $NEED_CONFIG; then
     # ---- Storage ----
     STORAGE_ROOT=$(prompt_val "Tenant data directory" "/opt/tenant-data")
     BACKUP_DIR=$(prompt_val "Backup directory" "/opt/tenant-backups")
+    TENANT_STATE_DIR="/opt/tenant-state"
+    LOG_DIR="/opt/dashboard-logs"
     NGINX_CONF_DIR="/etc/nginx/dokku-tenants"
 
     # ---- Write config.env ----
@@ -207,6 +209,8 @@ DOKKU_HOSTNAME=${DOKKU_HOSTNAME}
 NGINX_CONF_DIR=${NGINX_CONF_DIR}
 STORAGE_ROOT=${STORAGE_ROOT}
 BACKUP_DIR=${BACKUP_DIR}
+TENANT_STATE_DIR=${TENANT_STATE_DIR}
+LOG_DIR=${LOG_DIR}
 
 # External MySQL
 MYSQL_HOST=${MYSQL_HOST}
@@ -259,6 +263,8 @@ DOKKU_HOSTNAME="${DOKKU_HOSTNAME:-$BASE_DOMAIN}"
 NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/dokku-tenants}"
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/tenant-backups}"
+TENANT_STATE_DIR="${TENANT_STATE_DIR:-/opt/tenant-state}"
+LOG_DIR="${LOG_DIR:-/opt/dashboard-logs}"
 MYSQL_HOST="${MYSQL_HOST:-host.docker.internal}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
@@ -356,6 +362,8 @@ log "Skipping Dokku TLS plugins — TLS is handled by the operator's host nginx.
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 log "Creating storage root: ${STORAGE_ROOT}"
 mkdir -p "${STORAGE_ROOT}"
+log "Creating backup/state/log directories"
+mkdir -p "${BACKUP_DIR}" "${TENANT_STATE_DIR}" "${LOG_DIR}"
 
 # ---- Step 5b: External MySQL — master database ----
 if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ "$MYSQL_ROOT_PASSWORD" != "changeme" ]; then
@@ -488,8 +496,8 @@ if prompt_yn "Create your first tenant now?" "y"; then
 
         if [ -n "$DOCKERHUB_USERNAME" ]; then
             RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-dev}}"
-            BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/api}:${RELEASE_TAG}"
-            FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/web}:${RELEASE_TAG}"
+            BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-api}:${RELEASE_TAG}"
+            FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-web}:${RELEASE_TAG}"
 
             info "Will deploy from: $BACKEND_IMG + $FRONTEND_IMG"
             if prompt_yn "Are images already pushed to Docker Hub?" "n"; then
@@ -542,7 +550,7 @@ if [ -n "$DOCKERHUB_USERNAME" ]; then
 fi
 log ""
 log "  Create more tenants:"
-log "    sudo ./scripts/create-tenant.sh <name> --backend-image ${DOCKERHUB_USERNAME:-youruser}/api:${APP_IMAGE_VERSION_DEFAULT:-dev} --frontend-image ${DOCKERHUB_USERNAME:-youruser}/web:${APP_IMAGE_VERSION_DEFAULT:-dev}"
+log "    sudo ./scripts/create-tenant.sh <name> --backend-image ${BACKEND_IMAGE:-${DOCKERHUB_USERNAME:-youruser}/ifritah-api}:${APP_IMAGE_VERSION_DEFAULT:-dev} --frontend-image ${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME:-youruser}/ifritah-web}:${APP_IMAGE_VERSION_DEFAULT:-dev}"
 log ""
 log "==========================================="
 echo ""

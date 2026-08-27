@@ -49,6 +49,7 @@ runtime besides the docker socket.
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
 | `LOG_DIR`             | no       | `/opt/dashboard-logs` |
+| `TENANT_STATE_DIR`    | no       | `/opt/tenant-state` |
 | `COOKIE_SECURE`       | no       | `false`         |
 | `DASHBOARD_SNAPSHOT_WORKERS` | no | `8`             |
 | `DASHBOARD_ENV_FILE`  | no       | —               |
@@ -72,6 +73,11 @@ that repository. The dashboard rejects missing or incompatible tags before
 starting a runner.
 
 Use `TENANT_NAME_PREFIX` when dev and prod dashboards share one server or MySQL. With `TENANT_NAME_PREFIX=dev-`, creating tenant `acme` creates Dokku apps `dev-acme-backend` / `dev-acme-frontend` and database `tenant_dev_acme`. Use `TENANT_NAME_PREFIX=prod-` for prod so prod creates `tenant_prod_acme` instead. For two dashboards on one server, set this in each dashboard's `dashboard.env`; keep the shared `config.env` prefix unset or point each dashboard at a matching `DEPLOY_CONFIG_FILE`.
+
+The per-tenant auto-redeploy toggle is persisted as
+`<TENANT_STATE_DIR>/<tenant>.json`. When `auto-pull.sh` runs on the host, mount
+the same directory into the dashboard container so a disabled tenant is not
+redeployed by the poller.
 
 `BASE_DOMAIN` is a hostname only (for example, `ifritah.com`), and
 `PUBLIC_PROTOCOL` is the one scheme used for generated tenant/site links and

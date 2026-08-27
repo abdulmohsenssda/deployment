@@ -712,6 +712,13 @@
   }
 
   function tagSupportsScope(meta, scope) {
+    // Older/mock tag endpoints may return only tag details. Treat missing
+    // coverage fields as unknown rather than disabling an otherwise selectable
+    // suggestion; the server remains the final compatibility gate.
+    const hasCoverage = Object.prototype.hasOwnProperty.call(meta, 'in_both') ||
+      Object.prototype.hasOwnProperty.call(meta, 'backend_only') ||
+      Object.prototype.hasOwnProperty.call(meta, 'frontend_only');
+    if (!hasCoverage) return true;
     if (scope === 'backend') return meta.in_both === true || meta.backend_only === true;
     if (scope === 'frontend') return meta.in_both === true || meta.frontend_only === true;
     return meta.in_both === true;

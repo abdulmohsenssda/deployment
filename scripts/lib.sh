@@ -441,6 +441,9 @@ json_escape() {
     local s="$1"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
     printf '%s' "$s"
 }
 
@@ -468,9 +471,9 @@ verify_gzip_artifact() {
 
 # Write a backup manifest. Positional args keep callers simple:
 #   write_backup_manifest <meta-file> <tenant> <timestamp> <origin> <owner> \
-#                         <files-artifact|-> <db-artifact|-> <verified:true|false>
+#                         <files-artifact|-> <db-artifact|-> <verified:true|false> [label]
 write_backup_manifest() {
-    local meta="$1" tenant="$2" ts="$3" origin="$4" owner="$5" files="$6" db="$7" verified="$8"
+    local meta="$1" tenant="$2" ts="$3" origin="$4" owner="$5" files="$6" db="$7" verified="$8" label="${9:-}"
     local files_base="" db_base=""
     [ "$files" != "-" ] && [ -n "$files" ] && files_base="$(basename "$files")"
     [ "$db" != "-" ] && [ -n "$db" ] && db_base="$(basename "$db")"
@@ -481,6 +484,7 @@ write_backup_manifest() {
   "timestamp": "$(json_escape "$ts")",
   "origin": "$(json_escape "$origin")",
   "owner": "$(json_escape "$owner")",
+  "label": "$(json_escape "$label")",
   "files_artifact": "$(json_escape "$files_base")",
   "db_artifact": "$(json_escape "$db_base")",
   "verified": ${verified},

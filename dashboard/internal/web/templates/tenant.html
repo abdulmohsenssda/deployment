@@ -216,7 +216,7 @@
     <div class="backup-toolbar-controls" aria-label="Backup history controls">
       <label class="backup-field">
         <span class="backup-field-label">Search history</span>
-        <input id="backup-search" type="search" placeholder="ID, owner, origin…"
+        <input id="backup-search" type="search" placeholder="ID, label, owner, origin…"
                class="search-input" autocomplete="off">
       </label>
       <label class="backup-field">
@@ -239,13 +239,14 @@
           <th scope="col">Created</th>
           <th scope="col">Origin</th>
           <th scope="col">Owner</th>
+          <th scope="col">Label</th>
           <th scope="col">Verified</th>
           <th scope="col">DB Artifact</th>
           <th scope="col">Actions</th>
         </tr>
       </thead>
       <tbody id="backup-tbody">
-        <tr class="backup-empty-row"><td colspan="7" class="empty-cell">Loading backups…</td></tr>
+        <tr class="backup-empty-row"><td colspan="8" class="empty-cell">Loading backups…</td></tr>
       </tbody>
     </table>
   </div>
@@ -605,7 +606,7 @@
   // ── Backup list ────────────────────────────────────────────
   function showBackupMessage(message, error) {
     backupTbody.innerHTML =
-      '<tr class="backup-empty-row"><td colspan="7" class="empty-cell"></td></tr>';
+      '<tr class="backup-empty-row"><td colspan="8" class="empty-cell"></td></tr>';
     const cell = backupTbody.querySelector('.empty-cell');
     cell.textContent = message;
     if (error) cell.style.color = 'var(--red)';
@@ -676,6 +677,7 @@
         <td data-label="Created" class="backup-created">${escapeBackupHTML(shortTS)}</td>
         <td data-label="Origin">${originBadge}</td>
         <td data-label="Owner" class="backup-owner">${escapeBackupHTML(b.owner || '—')}</td>
+        <td data-label="Label" class="backup-label">${escapeBackupHTML(b.label || '—')}</td>
         <td data-label="Verified">${verBadge}</td>
         <td data-label="DB Artifact" class="backup-artifact" title="${safeDBFile}">${safeDBFile || '—'}</td>
         <td data-label="Actions">

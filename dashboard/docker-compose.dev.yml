@@ -28,6 +28,7 @@ services:
       SESSION_KEY: ${SESSION_KEY:-}
       LOG_BUFFER_LINES: 2000
       LOG_DIR: /opt/dashboard-logs
+      TENANT_STATE_DIR: /opt/tenant-state
       COOKIE_SECURE: "false"
       # Path to /opt/deployment on the *host* docker daemon. The dashboard spawns
       # a sidecar container with this directory mounted to execute scripts.
@@ -44,3 +45,4 @@ services:
       # already use (no need to duplicate them in compose).
       - ${SCRIPTS_HOST_PATH}:/opt/deployment:ro
       - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs
+      - ${TENANT_STATE_DIR:-./.tenant-state}:/opt/tenant-state

@@ -6,6 +6,7 @@
 #   ./scripts/backup-tenant.sh <tenant-name>
 #   ./scripts/backup-tenant.sh --all
 #   ./scripts/backup-tenant.sh <tenant-name> --origin user --owner alice
+#   ./scripts/backup-tenant.sh <tenant-name> --origin user --owner alice --label "before release"
 #   ./scripts/backup-tenant.sh --all --config /opt/deployment/config.dev.env
 #
 # Options:
@@ -14,6 +15,7 @@
 #                         auto backups are pruned by the retention policy.
 #   --owner <name>        Owner tag stored in the manifest (default: system,
 #                         or BACKUP_OWNER from the environment).
+#   --label <label>       Optional human-readable label stored in the manifest.
 #   --retention-days <n>  Override BACKUP_RETENTION_DAYS for the prune step.
 #   --no-prune            Skip the retention prune at the end of this run.
 #   --require-verified    Exit non-zero if any produced artifact fails
@@ -34,6 +36,7 @@ source "$SCRIPT_DIR/lib.sh"
 CONFIG_FILE="$PROJECT_DIR/config.env"
 ORIGIN="auto"
 OWNER="${BACKUP_OWNER:-system}"
+LABEL="${BACKUP_LABEL:-}"
 RETENTION_OVERRIDE=""
 DO_PRUNE=1
 REQUIRE_VERIFIED=0
@@ -43,6 +46,7 @@ while [ "$#" -gt 0 ]; do
         --config)           CONFIG_FILE="$2"; shift 2 ;;
         --origin)           ORIGIN="$2"; shift 2 ;;
         --owner)            OWNER="$2"; shift 2 ;;
+        --label)            LABEL="$2"; shift 2 ;;
         --retention-days)   RETENTION_OVERRIDE="$2"; shift 2 ;;
         --no-prune)         DO_PRUNE=0; shift ;;
         --require-verified) REQUIRE_VERIFIED=1; shift ;;
@@ -74,6 +78,11 @@ NC='\033[0m'
 log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
+
+if [ "${#LABEL}" -gt 120 ] || [[ "$LABEL" =~ [[:cntrl:]] ]]; then
+    err "Backup label must be at most 120 characters and contain no control characters."
+    exit 2
+fi
 
 mkdir -p "$BACKUP_DIR"
 
@@ -124,8 +133,8 @@ backup_tenant() {
     # Write the manifest sidecar describing this backup set.
     local meta="$BACKUP_DIR/${tenant}_${TIMESTAMP}.meta.json"
     write_backup_manifest "$meta" "$tenant" "$TIMESTAMP" "$ORIGIN" "$OWNER" \
-        "${files_dest:--}" "${db_dest:--}" "$LAST_VERIFIED"
-    log "Manifest: $meta (origin=$ORIGIN owner=$OWNER verified=$LAST_VERIFIED)"
+        "${files_dest:--}" "${db_dest:--}" "$LAST_VERIFIED" "$LABEL"
+    log "Manifest: $meta (origin=$ORIGIN owner=$OWNER label=${LABEL:-<none>} verified=$LAST_VERIFIED)"
 }
 
 OVERALL_VERIFIED="true"
@@ -149,7 +158,7 @@ elif [ -n "${1:-}" ]; then
     backup_tenant "$(tenant_full_name "$1")"
     [ "$LAST_VERIFIED" = "true" ] || OVERALL_VERIFIED="false"
 else
-    echo "Usage: $0 <tenant-name> | --all [--origin user|auto] [--owner <name>]"
+    echo "Usage: $0 <tenant-name> | --all [--origin user|auto] [--owner <name>] [--label <label>]"
     exit 1
 fi
 
