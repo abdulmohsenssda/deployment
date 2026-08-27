@@ -256,6 +256,68 @@ test('tenant page has backup panel and auto-redeploy card', async ({ page }) => 
   await expect(page.locator('#backup-tbody')).toBeVisible();
 });
 
+test('tenant credentials show an accessible retry state when loading fails', async ({ page }) => {
+  await login(page);
+  await page.route('**/tenants/dev-git/credentials', async route => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 503,
+      contentType: 'text/plain',
+      body: 'backend unavailable',
+    });
+  });
+
+  await page.goto(BASE + '/tenants/dev-git');
+
+  const status = page.locator('#credentials-status');
+  await expect(status).toContainText('Failed to load credentials');
+  await expect(status).toHaveAttribute('role', 'status');
+  await expect(status).toHaveAttribute('aria-live', 'polite');
+  await expect(page.getByRole('button', { name: 'Retry loading credentials' })).toBeVisible();
+  await expect(page.locator('#cred-admin-user')).toHaveText('Failed to load credentials.');
+  await expect(page.locator('#cred-manager-user')).toHaveText('Failed to load credentials.');
+});
+
+test('tenant credentials recover after retrying a failed load', async ({ page }) => {
+  await login(page);
+  let credentialRequests = 0;
+  await page.route('**/tenants/dev-git/credentials', async route => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    credentialRequests += 1;
+    if (credentialRequests === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'text/plain',
+        body: 'backend unavailable',
+      });
+      return;
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        admin_user: 'recovered-admin',
+        manager_user: 'recovered-manager',
+      }),
+    });
+  });
+
+  await page.goto(BASE + '/tenants/dev-git');
+  await expect(page.locator('#credentials-status')).toContainText('Failed to load credentials');
+  await page.getByRole('button', { name: 'Retry loading credentials' }).click();
+
+  await expect(page.locator('#cred-admin-user')).toHaveText('recovered-admin');
+  await expect(page.locator('#cred-manager-user')).toHaveText('recovered-manager');
+  await expect(page.locator('#credentials-status')).toHaveText('Credentials loaded.');
+  await expect(page.getByRole('button', { name: 'Retry loading credentials' })).toBeHidden();
+  expect(credentialRequests).toBe(2);
+});
+
 test('tenant page auto-redeploy toggle persists', async ({ page }) => {
   await login(page);
   await page.goto(BASE + '/tenants/dev-git');
@@ -299,4 +361,3 @@ test('create-tenant form defaults to dev tag', async ({ page }) => {
   const input = page.locator('input[name="image_version"]');
   await expect(input).toHaveValue('dev');
 });
-

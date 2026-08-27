@@ -130,11 +130,17 @@
     <span class="panel-title" style="border:none;padding:0;margin:0">Access Credentials</span>
     <div style="font-size:11px;color:var(--text-muted)">Admin and manager user accounts for this tenant</div>
   </div>
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;min-height:48px">
+    <div id="credentials-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="true"
+         style="font-size:12px;color:var(--text-muted)">Loading credentials…</div>
+    <button id="credentials-retry" type="button" class="btn btn-secondary" hidden
+            aria-label="Retry loading credentials">Retry</button>
+  </div>
   <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <!-- Admin -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Admin account</div>
-      <div id="cred-admin-user" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
+      <div id="cred-admin-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -148,7 +154,7 @@
     <!-- Manager -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Manager account</div>
-      <div id="cred-manager-user" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
+      <div id="cred-manager-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -335,19 +341,60 @@
   }
 
   // ── Credentials ───────────────────────────────────────────
+  const credentialStatus = document.getElementById('credentials-status');
+  const credentialRetry = document.getElementById('credentials-retry');
+
+  function setCredentialStatus(message, state) {
+    if (!credentialStatus) return;
+    credentialStatus.textContent = message;
+    credentialStatus.dataset.state = state;
+    credentialStatus.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
+    credentialStatus.style.color = state === 'error' ? 'var(--red)' : 'var(--text-muted)';
+  }
+
+  function setCredentialFields(message, busy) {
+    ['admin', 'manager'].forEach((role) => {
+      const el = document.getElementById('cred-' + role + '-user');
+      if (!el) return;
+      el.textContent = message;
+      el.setAttribute('aria-busy', busy ? 'true' : 'false');
+    });
+  }
+
   async function loadCredentials() {
+    setCredentialStatus('Loading credentials…', 'loading');
+    setCredentialFields('Loading…', true);
+    if (credentialRetry) credentialRetry.disabled = true;
     try {
       const res = await fetch('/tenants/' + tenant + '/credentials');
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const adminEl = document.getElementById('cred-admin-user');
       const managerEl = document.getElementById('cred-manager-user');
-      if (adminEl) adminEl.textContent = data.admin_user || '(not set)';
-      if (managerEl) managerEl.textContent = data.manager_user || '(not set)';
+      if (adminEl) {
+        adminEl.textContent = data.admin_user || '(not set)';
+        adminEl.setAttribute('aria-busy', 'false');
+      }
+      if (managerEl) {
+        managerEl.textContent = data.manager_user || '(not set)';
+        managerEl.setAttribute('aria-busy', 'false');
+      }
+      setCredentialStatus('Credentials loaded.', 'success');
+      if (credentialRetry) credentialRetry.hidden = true;
     } catch (e) {
+      setCredentialFields('Failed to load credentials.', false);
+      setCredentialStatus('Failed to load credentials. Try again.', 'error');
+      if (credentialRetry) {
+        credentialRetry.hidden = false;
+        credentialRetry.disabled = false;
+      }
       console.warn('Failed to load credentials:', e);
+    } finally {
+      if (credentialRetry && credentialRetry.hidden) credentialRetry.disabled = false;
     }
   }
+
+  credentialRetry?.addEventListener('click', loadCredentials);
 
   function setupCredBtn(role) {
     const btn = document.getElementById('cred-' + role + '-btn');
