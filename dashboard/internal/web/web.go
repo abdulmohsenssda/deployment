@@ -744,10 +744,12 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // ---- Helpers ----------------------------------------------------------------
 
 func (s *server) handleScriptsPage(w http.ResponseWriter, _ *http.Request) {
+	groups := scripts.CommandGroups()
 	s.render(w, "scripts.html", map[string]any{
-		"Env":      s.cfg.EnvName,
-		"Scripts":  scripts.Catalog(),
-		"Releases": s.releaseViews(),
+		"Env":           s.cfg.EnvName,
+		"Scripts":       scripts.Catalog(),
+		"CommandGroups": groups,
+		"Releases":      s.releaseViews(),
 	})
 }
 

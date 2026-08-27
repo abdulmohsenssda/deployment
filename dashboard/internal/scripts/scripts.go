@@ -230,13 +230,134 @@ func (s Script) ControlCommand() string {
 	}
 }
 
-// Group returns the operation group used by command-center templates.
-func (s Script) Group() string {
-	cmd := s.ControlCommand()
-	if before, _, ok := strings.Cut(cmd, " "); ok {
-		return before
+const (
+	commandGroupReadOnlyStatus  = "read-only-status"
+	commandGroupDeployment      = "deployment-lifecycle"
+	commandGroupBackupRestore   = "backup-restore"
+	commandGroupCleanupDeletion = "cleanup-deletion"
+)
+
+// CommandGroup is a scan-friendly section of the command index.
+type CommandGroup struct {
+	ID          string
+	Title       string
+	Description string
+	Scripts     []Script
+}
+
+// GroupID returns the stable command-index group identifier for a script.
+func (s Script) GroupID() string {
+	switch s.Slug() {
+	case "status", "list-tenants", "tail-logs", "verify-mysql",
+		"discover-dokku-nginx", "watch-dokku-traffic":
+		return commandGroupReadOnlyStatus
+	case "backup-tenant", "manage-backups", "restore-tenant":
+		return commandGroupBackupRestore
+	case "remove-tenant", "cleanup-broken-tenant", "cleanup-old-files":
+		return commandGroupCleanupDeletion
+	default:
+		return commandGroupDeployment
 	}
-	return cmd
+}
+
+// Group returns the human-readable operation group used by command-index
+// templates and other callers that render an individual script.
+func (s Script) Group() string {
+	for _, group := range commandGroupDefinitions() {
+		if group.ID == s.GroupID() {
+			return group.Title
+		}
+	}
+	return "Deployment / lifecycle"
+}
+
+// ImpactClass returns the CSS/data classification used to signal command
+// impact before an operator opens the command.
+func (s Script) ImpactClass() string {
+	switch s.Slug() {
+	case "status", "list-tenants", "tail-logs", "verify-mysql",
+		"discover-dokku-nginx", "watch-dokku-traffic":
+		return "read-only"
+	case "remove-tenant", "cleanup-broken-tenant", "cleanup-old-files", "restore-tenant":
+		return "destructive"
+	default:
+		if s.Danger {
+			return "high-impact"
+		}
+		return "state-changing"
+	}
+}
+
+// ImpactLabel returns the short, visible impact cue shown on command cards.
+func (s Script) ImpactLabel() string {
+	switch s.ImpactClass() {
+	case "read-only":
+		return "Read-only"
+	case "destructive":
+		return "Destructive"
+	case "high-impact":
+		return "High impact"
+	default:
+		return "Changes state"
+	}
+}
+
+// ImpactDescription returns the longer impact cue used for accessibility and
+// hover text in the command index.
+func (s Script) ImpactDescription() string {
+	switch s.ImpactClass() {
+	case "read-only":
+		return "Read-only; does not change tenant state."
+	case "destructive":
+		return "May overwrite or delete tenant data; confirmation is required."
+	case "high-impact":
+		return "Changes live deployment state; confirmation is required."
+	default:
+		return "Changes deployment or stored state."
+	}
+}
+
+func commandGroupDefinitions() []CommandGroup {
+	return []CommandGroup{
+		{
+			ID:          commandGroupReadOnlyStatus,
+			Title:       "Read-only / status",
+			Description: "Inspect tenant health, logs, connectivity, and routing without changing workloads.",
+		},
+		{
+			ID:          commandGroupDeployment,
+			Title:       "Deployment / lifecycle",
+			Description: "Provision tenants, roll out images, tune services, and run platform setup.",
+		},
+		{
+			ID:          commandGroupBackupRestore,
+			Title:       "Backup / restore",
+			Description: "Protect, inspect, and recover tenant data. Restore can replace the current state.",
+		},
+		{
+			ID:          commandGroupCleanupDeletion,
+			Title:       "Cleanup / deletion",
+			Description: "Remove tenants or retired files. Destructive commands require extra review.",
+		},
+	}
+}
+
+// CommandGroups returns the complete catalog arranged in the command index's
+// stable, risk-aware section order. Every catalog entry appears exactly once.
+func CommandGroups() []CommandGroup {
+	groups := commandGroupDefinitions()
+	index := make(map[string]int, len(groups))
+	for i := range groups {
+		index[groups[i].ID] = i
+	}
+	for _, script := range Catalog() {
+		i, ok := index[script.GroupID()]
+		if !ok {
+			i = index[commandGroupDeployment]
+		}
+		groups[i].Scripts = append(groups[i].Scripts, script)
+	}
+	return groups
 }
 
 // Catalog returns the curated list of deployctl-backed operations the dashboard exposes.

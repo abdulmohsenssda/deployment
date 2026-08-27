@@ -2,7 +2,7 @@
 <div class="page-header">
   <div class="page-header-left">
     <h1 class="page-title">Deployment Commands</h1>
-    <span class="page-subtitle">Every action maps to <code>scripts/deployctl.sh</code></span>
+    <span class="page-subtitle">Every action maps to <code>scripts/deployctl.sh</code>. Choose a group, then review the impact cue before running.</span>
   </div>
   <div class="page-header-right">
     <a href="/releases" class="btn btn-secondary">Releases</a>
@@ -10,19 +10,46 @@
   </div>
 </div>
 
-<div class="command-grid">
-  {{range .Scripts}}
-  <a href="/scripts/{{.Slug}}" class="command-card">
-    <div class="cc-top">
-      <span class="cc-group">{{.Group}}</span>
-      {{if .Danger}}<span class="cc-danger">danger</span>{{end}}
-    </div>
-    <div class="cc-title">{{.Title}}</div>
-    <div class="cc-desc">{{.Summary}}</div>
-    <code class="cc-cmd">deployctl {{.ControlCommand}}</code>
-  </a>
-  {{end}}
+<div class="command-index-guide" aria-label="Command impact legend">
+  <span class="command-index-guide-label">Impact</span>
+  <span class="impact-key impact-key-read-only">Read-only</span>
+  <span class="impact-key impact-key-state-changing">Changes state</span>
+  <span class="impact-key impact-key-high-impact">High impact</span>
+  <span class="impact-key impact-key-destructive">Destructive</span>
+  <span class="command-index-guide-note">High-impact and destructive commands ask for confirmation.</span>
 </div>
+
+{{range .CommandGroups}}
+<section class="command-group" data-command-group="{{.ID}}">
+  <header class="command-group-header">
+    <div>
+      <div class="command-group-kicker">Command group</div>
+      <h2 class="command-group-title">{{.Title}}</h2>
+      <p class="command-group-desc">{{.Description}}</p>
+    </div>
+    <span class="command-group-count">{{len .Scripts}} commands</span>
+  </header>
+  <div class="command-grid">
+    {{range .Scripts}}
+    <a href="/scripts/{{.Slug}}" class="command-card{{if .Danger}} command-card-danger{{end}}"
+       data-script="{{.Slug}}" data-impact="{{.ImpactClass}}" data-danger="{{.Danger}}"
+       aria-label="{{.Title}} — {{.ImpactLabel}}{{if .Danger}} — danger; confirmation required{{end}}"
+       title="{{.ImpactDescription}}">
+      <div class="cc-top">
+        <span class="cc-group">{{.Group}}</span>
+        <div class="cc-badges">
+          <span class="cc-impact cc-impact-{{.ImpactClass}}">{{.ImpactLabel}}</span>
+          {{if .Danger}}<span class="cc-danger">⚠ Danger · Confirm before running</span>{{end}}
+        </div>
+      </div>
+      <div class="cc-title">{{.Title}}</div>
+      <div class="cc-desc">{{.Summary}}</div>
+      <code class="cc-cmd">deployctl {{.ControlCommand}}</code>
+    </a>
+    {{end}}
+  </div>
+</section>
+{{end}}
 {{end}}
 
 {{define "scripts.html"}}{{template "_layout.html" .}}{{end}}
