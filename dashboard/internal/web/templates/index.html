@@ -6,46 +6,57 @@
     <h1 class="page-title">Tenant Fleet</h1>
     <span class="page-subtitle">Base domain: <code>*.{{.Base}}</code></span>
   </div>
-  <div class="page-header-right">
-    <!-- Quick create: kind prefix + name + button -->
-    <select id="kind-select" class="form-select" style="width:90px" title="Environment kind prefix">
-      <option value="dev">dev</option>
-      <option value="qa">qa</option>
-      <option value="prod">prod</option>
-    </select>
-    <input id="new-tenant-name" type="text" class="search-input" style="width:140px"
-           placeholder="tenant name…" autocomplete="off" spellcheck="false">
-    <button id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
-    <a href="/scripts/deploy-all" class="btn btn-secondary">Sync image</a>
+  <div class="page-header-right fleet-header-actions">
+    <div class="fleet-quick-create">
+      <select id="kind-select" class="form-select quick-create-kind"
+              title="Environment kind prefix" aria-label="Environment kind prefix">
+        <option value="dev">dev</option>
+        <option value="qa">qa</option>
+        <option value="prod">prod</option>
+      </select>
+      <input id="new-tenant-name" type="text" class="search-input quick-create-name"
+             placeholder="tenant name…" autocomplete="off" spellcheck="false" aria-label="New tenant name">
+      <button type="button" id="create-tenant-btn" class="btn btn-primary">+ Create tenant</button>
+    </div>
+    <a href="/scripts/deploy-all" class="btn btn-secondary quick-create-sync">Sync image</a>
   </div>
 </div>
 
-<div class="panel">
-  <div class="panel-toolbar">
+<script id="fleet-bootstrap" type="application/json">{{.FleetBootstrap}}</script>
+
+<div class="panel fleet-panel">
+  <div class="panel-toolbar fleet-toolbar">
     <div class="status-summary">
       <span class="status-count" id="s-total">— tenants</span>
       <span class="status-count running" id="s-running" style="display:none"></span>
       <span class="status-count degraded" id="s-degraded" style="display:none"></span>
       <span class="status-count stopped" id="s-stopped" style="display:none"></span>
-      <span id="dokku-pill" class="dokku-pill">Dokku <span class="dokku-status">…</span></span>
+      <span id="dokku-pill" class="dokku-pill" title="Dokku health is not available yet">Dokku <span class="dokku-status">…</span></span>
     </div>
-    <div class="panel-toolbar-right">
-      <input id="filter" type="search" placeholder="Filter tenants…" class="search-input" autocomplete="off">
-      <span id="pulse" class="live-dot" title="Live"></span>
+    <div class="panel-toolbar-right fleet-filter-controls">
+      <input id="filter" type="search" placeholder="Filter tenants…" class="search-input"
+             autocomplete="off" aria-label="Filter tenants">
+      <span id="snapshot-meta" class="snapshot-meta" role="status" aria-live="polite">Waiting for health snapshot…</span>
+      <span id="pulse" class="live-dot" title="Live updates" aria-hidden="true"></span>
     </div>
   </div>
 
-  <div class="table-wrap">
-    <table class="data-table fleet-table">
+  <span id="tenant-stream-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    Connecting to live tenant updates.
+  </span>
+
+  <div class="table-wrap fleet-table-wrap">
+    <table class="data-table fleet-table" aria-busy="true" aria-describedby="tenant-stream-status">
+      <caption class="sr-only">Tenant fleet status</caption>
       <thead>
         <tr>
-          <th class="col-status"></th>
-          <th class="col-name">Tenant</th>
-          <th class="col-health">Health</th>
-          <th class="col-state">State</th>
-          <th class="col-version">Version</th>
-          <th class="col-apps">Apps</th>
-          <th class="col-actions">Actions</th>
+          <th class="col-status" scope="col"><span class="sr-only">Status</span></th>
+          <th class="col-name" scope="col">Tenant</th>
+          <th class="col-health" scope="col">Health</th>
+          <th class="col-state" scope="col">State</th>
+          <th class="col-version" scope="col">Version</th>
+          <th class="col-apps" scope="col">Apps</th>
+          <th class="col-actions" scope="col">Actions</th>
         </tr>
       </thead>
       <tbody id="tenant-tbody">
@@ -66,17 +77,25 @@
         <span class="js-domain row-sub"></span>
       </a>
     </td>
-    <td class="col-health"><span class="badge js-health-badge"></span></td>
-    <td class="col-state"><span class="badge js-state-badge"></span></td>
-    <td class="col-version"><code class="js-version row-mono"></code></td>
-    <td class="col-apps"><span class="js-apps row-sub"></span></td>
+    <td class="col-health" data-label="Health">
+      <span class="badge js-health-badge"></span>
+      <span class="row-sub js-health-detail"></span>
+    </td>
+    <td class="col-state" data-label="State">
+      <span class="badge js-state-badge"></span>
+      <span class="row-sub js-state-detail">Lifecycle</span>
+    </td>
+    <td class="col-version" data-label="Version"><code class="js-version row-mono"></code></td>
+    <td class="col-apps" data-label="Apps"><span class="js-apps row-sub"></span></td>
     <td class="col-actions">
       <div class="row-actions">
-        <button class="btn-action js-restart" data-act="restart">↺ Restart</button>
-        <button class="btn-action warn js-stop"  data-act="stop">⏹ Stop</button>
-        <button class="btn-action good js-start" data-act="start">▶ Start</button>
-        <a class="btn-action js-open" href="#" target="_blank" rel="noopener" style="display:none">↗ Open</a>
+        <button class="btn-action js-restart" data-act="restart" aria-busy="false">↺ Restart</button>
+        <button class="btn-action warn js-stop"  data-act="stop" aria-busy="false">⏹ Stop</button>
+        <button class="btn-action good js-start" data-act="start" aria-busy="false">▶ Start</button>
+        <a class="btn-action js-open" target="_blank" rel="noopener" style="display:none">↗ Open</a>
+        <span class="btn-action unavailable js-open-unavailable" role="status" aria-live="polite" style="display:none"></span>
       </div>
+      <span class="action-feedback js-action-feedback" role="status" aria-live="polite"></span>
     </td>
   </tr>
 </template>

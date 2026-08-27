@@ -50,6 +50,7 @@ BACKEND_IMAGE="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifri
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME:+${DOCKERHUB_USERNAME}/ifritah-web}}"
 DEV_TAG="${DEV_TAG:-dev}"
 DEV_TENANT="$(tenant_full_name "${DEV_TENANT:-dev}")" || exit 1
+TENANT_STATE_DIR="${TENANT_STATE_DIR:-/opt/tenant-state}"
 DIGEST_DIR="/var/lib/auto-pull"
 mkdir -p "$DIGEST_DIR"
 
@@ -62,6 +63,44 @@ fi
 if ! dokku apps:exists "${DEV_TENANT}-backend" 2>/dev/null; then
     exit 0
 fi
+
+# Per-tenant auto-redeploy switch. Operators can disable automatic redeploys
+# for specific tenants/environments without turning off the cron by listing
+# tenant names (comma/space separated) in AUTO_REDEPLOY_DISABLED in config.env.
+# The names are matched after prefix normalization so either "dev" or
+# "dev-dev" works. The dashboard's persistent TENANT_STATE_DIR setting is
+# checked as well, so the per-tenant checkbox is enforced by this host-side
+# poller rather than only being cosmetic UI state.
+auto_redeploy_enabled() {
+    local tenant="$1" raw item norm
+    raw="${AUTO_REDEPLOY_DISABLED:-}"
+    if [ -n "$raw" ]; then
+        for item in ${raw//,/ }; do
+            norm="$(tenant_full_name "$item" 2>/dev/null || echo "$item")"
+            if [ "$norm" = "$tenant" ] || [ "$item" = "$tenant" ]; then
+                return 1
+            fi
+        done
+    fi
+
+    local state_file="$TENANT_STATE_DIR/${tenant}.json"
+    if [ -e "$state_file" ]; then
+        if [ ! -r "$state_file" ]; then
+            warn "Cannot read tenant auto-redeploy state: $state_file — skipping deploy"
+            return 1
+        fi
+        if grep -Eq '"auto_redeploy"[[:space:]]*:[[:space:]]*false' "$state_file"; then
+            info "Auto-redeploy disabled for $tenant (dashboard setting) — skipping."
+            return 1
+        fi
+        if grep -Eq '"auto_redeploy"[[:space:]]*:' "$state_file" &&
+            ! grep -Eq '"auto_redeploy"[[:space:]]*:[[:space:]]*true' "$state_file"; then
+            warn "Invalid tenant auto-redeploy state: $state_file — skipping deploy"
+            return 1
+        fi
+    fi
+    return 0
+}
 
 # One polling cycle may discover new backend and frontend images together.
 # Take one verified safety backup before the first deployment, then reuse it
@@ -90,7 +129,7 @@ check_and_deploy() {
     local image="$1" app_type="$2"
     [ -z "$image" ] && return 0
 
-    if ! tenant_auto_redeploy_enabled "$DEV_TENANT"; then
+    if ! auto_redeploy_enabled "$DEV_TENANT"; then
         info "Auto-redeploy disabled for $DEV_TENANT (AUTO_REDEPLOY_DISABLED) — skipping ${app_type}."
         return 0
     fi

@@ -36,6 +36,7 @@ DRY_RUN="${DRY_RUN:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib.sh"
 
 # Try to source config.env for BASE_DOMAIN if not provided
 if [ -z "${BASE_DOMAIN:-}" ] && [ -f "$PROJECT_DIR/config.env" ]; then
@@ -226,5 +227,9 @@ dk_dokku proxy:build-config --all >/dev/null || warn "proxy:build-config failed"
 
 log "Done. Verify next:"
 for t in "${TENANTS[@]}"; do
-    echo "  curl -I http://${t}.${BASE_DOMAIN}/"
+    if site_url="$(public_tenant_url "$t")"; then
+        echo "  curl -I ${site_url}/"
+    else
+        echo "  (invalid public URL for ${t})"
+    fi
 done

@@ -31,10 +31,12 @@ func getEnvRaw(k string) string { return "" }
 // every restart was the bug this closes.
 func TestSessionKeyRequiredInProd(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DASHBOARD_ENV":        "prod",
-		"ADMIN_USER":           "admin",
-		"ADMIN_PASSWORD_HASH":  "$2a$10$fakehashthatpassesparse.................",
-		"SESSION_KEY":          "",
+		"DASHBOARD_ENV":       "prod",
+		"ADMIN_USER":          "admin",
+		"ADMIN_PASSWORD_HASH": "$2a$10$fakehashthatpassesparse.................",
+		"BASE_DOMAIN":         "example.com",
+		"PUBLIC_PROTOCOL":     "https",
+		"SESSION_KEY":         "",
 	})
 	_, err := Load()
 	if err == nil {
@@ -49,10 +51,10 @@ func TestSessionKeyRequiredInProd(t *testing.T) {
 // auto-regenerate, they only matter across restarts in prod.
 func TestSessionKeyOptionalInDev(t *testing.T) {
 	setEnv(t, map[string]string{
-		"DASHBOARD_ENV":        "dev",
-		"ADMIN_USER":           "admin",
-		"ADMIN_PASSWORD_HASH":  "$2a$10$fakehashthatpassesparse.................",
-		"SESSION_KEY":          "",
+		"DASHBOARD_ENV":       "dev",
+		"ADMIN_USER":          "admin",
+		"ADMIN_PASSWORD_HASH": "$2a$10$fakehashthatpassesparse.................",
+		"SESSION_KEY":         "",
 	})
 	c, err := Load()
 	if err != nil {
@@ -67,10 +69,12 @@ func TestSessionKeyOptionalInDev(t *testing.T) {
 func TestSessionKeyMinLength32(t *testing.T) {
 	short := hex.EncodeToString(make([]byte, 8)) // 8 bytes = 16 hex chars
 	setEnv(t, map[string]string{
-		"DASHBOARD_ENV":        "prod",
-		"ADMIN_USER":           "admin",
-		"ADMIN_PASSWORD_HASH":  "$2a$10$fakehashthatpassesparse.................",
-		"SESSION_KEY":          short,
+		"DASHBOARD_ENV":       "prod",
+		"ADMIN_USER":          "admin",
+		"ADMIN_PASSWORD_HASH": "$2a$10$fakehashthatpassesparse.................",
+		"BASE_DOMAIN":         "example.com",
+		"PUBLIC_PROTOCOL":     "https",
+		"SESSION_KEY":         short,
 	})
 	_, err := Load()
 	if err == nil {

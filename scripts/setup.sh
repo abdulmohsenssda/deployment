@@ -118,6 +118,8 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 fi
 
+PUBLIC_PROTOCOL="${PUBLIC_PROTOCOL:-https}"
+
 if $NEED_CONFIG; then
     echo ""
     info "I'll ask a few questions to generate your config.env."
@@ -186,6 +188,8 @@ if $NEED_CONFIG; then
     # ---- Storage ----
     STORAGE_ROOT=$(prompt_val "Tenant data directory" "/opt/tenant-data")
     BACKUP_DIR=$(prompt_val "Backup directory" "/opt/tenant-backups")
+    TENANT_STATE_DIR="/opt/tenant-state"
+    LOG_DIR="/opt/dashboard-logs"
     NGINX_CONF_DIR="/etc/nginx/dokku-tenants"
 
     # ---- Write config.env ----
@@ -197,6 +201,7 @@ if $NEED_CONFIG; then
 # =============================================================================
 
 BASE_DOMAIN=${BASE_DOMAIN}
+PUBLIC_PROTOCOL=${PUBLIC_PROTOCOL}
 ACME_EMAIL=${ACME_EMAIL}
 NGINX_MODE=${NGINX_MODE}
 DOKKU_PORT=${DOKKU_PORT}
@@ -204,6 +209,8 @@ DOKKU_HOSTNAME=${DOKKU_HOSTNAME}
 NGINX_CONF_DIR=${NGINX_CONF_DIR}
 STORAGE_ROOT=${STORAGE_ROOT}
 BACKUP_DIR=${BACKUP_DIR}
+TENANT_STATE_DIR=${TENANT_STATE_DIR}
+LOG_DIR=${LOG_DIR}
 
 # External MySQL
 MYSQL_HOST=${MYSQL_HOST}
@@ -241,6 +248,7 @@ fi
 
 # Re-read all config values with defaults
 BASE_DOMAIN="${BASE_DOMAIN:?}"
+PUBLIC_PROTOCOL="${PUBLIC_PROTOCOL:-https}"
 ACME_EMAIL="${ACME_EMAIL:-}"
 NGINX_MODE="${NGINX_MODE:-behind-nginx}"
 if [ "$NGINX_MODE" = "behind-nginx-shared" ]; then
@@ -255,6 +263,8 @@ DOKKU_HOSTNAME="${DOKKU_HOSTNAME:-$BASE_DOMAIN}"
 NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/dokku-tenants}"
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/tenant-backups}"
+TENANT_STATE_DIR="${TENANT_STATE_DIR:-/opt/tenant-state}"
+LOG_DIR="${LOG_DIR:-/opt/dashboard-logs}"
 MYSQL_HOST="${MYSQL_HOST:-host.docker.internal}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
@@ -269,6 +279,7 @@ echo "==========================================="
 echo "  Configuration"
 echo "==========================================="
 echo "  Domain:     *.${BASE_DOMAIN}"
+echo "  Public URL: ${PUBLIC_PROTOCOL}://${BASE_DOMAIN}"
 echo "  Email:      ${ACME_EMAIL:-not set}"
 echo "  Nginx:      ${NGINX_MODE}"
 echo "  Dokku:      ${DOKKU_HOSTNAME}:${DOKKU_PORT}"
@@ -351,6 +362,8 @@ log "Skipping Dokku TLS plugins — TLS is handled by the operator's host nginx.
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 log "Creating storage root: ${STORAGE_ROOT}"
 mkdir -p "${STORAGE_ROOT}"
+log "Creating backup/state/log directories"
+mkdir -p "${BACKUP_DIR}" "${TENANT_STATE_DIR}" "${LOG_DIR}"
 
 # ---- Step 5b: External MySQL — master database ----
 if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ "$MYSQL_ROOT_PASSWORD" != "changeme" ]; then
@@ -482,7 +495,7 @@ if prompt_yn "Create your first tenant now?" "y"; then
         TENANT_CMD="$SCRIPT_DIR/create-tenant.sh $TENANT_NAME --config $CONFIG_FILE"
 
         if [ -n "$DOCKERHUB_USERNAME" ]; then
-            RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-v0.0.1}}"
+            RELEASE_TAG="${APP_IMAGE_VERSION_DEFAULT:-${PULL_TAG:-dev}}"
             BACKEND_IMG="${BACKEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-api}:${RELEASE_TAG}"
             FRONTEND_IMG="${FRONTEND_IMAGE:-${DOCKERHUB_USERNAME}/ifritah-web}:${RELEASE_TAG}"
 
@@ -526,9 +539,9 @@ if [ -n "$DOCKERHUB_USERNAME" ]; then
         log "  DOCKERHUB_USERNAME = $DOCKERHUB_USERNAME"
         log "  DOCKERHUB_TOKEN    = <your Docker Hub access token>"
         log "  WEBHOOK_SECRET     = $WEBHOOK_SECRET"
-        SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "<server-ip>")
-        log "  WEBHOOK_URL_DEV    = http://${SERVER_IP}:9999/deploy"
-        log "  WEBHOOK_URL_PROD   = http://${SERVER_IP}:9999/deploy"
+        WEBHOOK_URL="$(public_url "deploy.${BASE_DOMAIN}")/deploy"
+        log "  WEBHOOK_URL_DEV    = ${WEBHOOK_URL}"
+        log "  WEBHOOK_URL_PROD   = ${WEBHOOK_URL}"
     fi
     log ""
     log "  ── CI workflow files ──"

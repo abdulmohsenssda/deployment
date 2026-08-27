@@ -7,12 +7,26 @@ Argo-CD-inspired web UI for the Dokku tenants on this server.
 - Tenant-first actions: select a tenant, then update version / restart / stop / delete
 - Compatible version picker: one release tag maps to backend and frontend images
 - Release notes page with broken-version status
-- Live log streaming (SSE) + persistent ring-buffer log aggregation +
-  downloadable dump
+- Live log streaming (SSE) + durable ring-buffer logs/activity + downloadable dump
+- Grouped command index (read-only/status, deployment/lifecycle, backup/restore,
+  cleanup/deletion) with impact and confirmation cues
 - Durable activity history for tenant, app, and command operations
 - Command forms backed by `scripts/deployctl.sh` with streamed output
+- Command output and tenant activity panels show idle/running/success/failure
+  states and retain the most recent 200 browser-side activity lines across
+  refreshes (an interrupted run is shown as failed)
 - Command palette (Ctrl/Cmd+K)
 - Single-admin login (bcrypt) with signed cookie session
+- Public `/version` build metadata endpoint and footer identity
+
+The live app log pane is bounded in the browser to the newest 2,000 lines and
+1 MiB of UTF-8 text. Older lines are evicted as new output arrives; an
+individual line larger than the byte cap is truncated to fit. Log text is
+rendered through DOM text nodes, so ANSI escape sequences and other untrusted
+characters remain inert, while HTTP(S) URLs stay clickable. The server-side
+`LOG_BUFFER_LINES` ring buffer remains the source for initial snapshots and
+downloads. Run the deterministic browser regression with
+`cd e2e && npm run test:log-retention` from the dashboard directory.
 
 ## Deployment model
 
@@ -32,9 +46,13 @@ runtime besides the docker socket.
 | `DOCKER_BIN`          | no       | `docker`        |
 | `DOKKU_CONTAINER`     | no       | `dokku`         |
 | `BASE_DOMAIN`         | no       | `localhost`     |
+| `PUBLIC_PROTOCOL`     | no       | `http` in dev, `https` in prod |
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
 | `LOG_DIR`             | no       | `/opt/dashboard-logs` |
+| `TENANT_STATE_DIR`    | no       | `/opt/tenant-state` |
+| `BACKUP_DIR`          | no       | `/opt/tenant-backups` |
+| `STORAGE_ROOT`        | no       | `/opt/tenant-data` |
 | `COOKIE_SECURE`       | no       | `false`         |
 | `DASHBOARD_SNAPSHOT_WORKERS` | no | `8`             |
 | `DASHBOARD_ENV_FILE`  | no       | —               |
@@ -45,10 +63,10 @@ runtime besides the docker socket.
 | `MYSQL_ROOT_USER`     | no       | `root`        |
 | `MYSQL_ROOT_PASSWORD` | no       | —             |
 
-The image picker accepts exact SemVer releases and branch/channel tags such as
-`dev`, `latest`, or a PR branch tag. Tags are discovered from the configured
-Docker Hub backend and frontend repositories, and the dashboard marks whether
-each tag exists in both repositories before it is deployed to both apps:
+Version picker values are Docker image tags. Full tenant flows (create, update, and
+tenant sync) default to `dev`, because that tag is published for both apps in the
+branch-image workflow. The picker also supports release, channel, branch, and PR tags;
+select a tag marked `both repos` for a full tenant flow:
 
 ```sh
 BACKEND_IMAGE=ssdawweq/ifritah-api
@@ -57,16 +75,32 @@ APP_IMAGE_VERSIONS=v0.0.1
 APP_IMAGE_VERSION_DEFAULT=dev
 ```
 
+Role-specific actions (database init, deploy, rollback, and image pinning)
+identify the backend or frontend target and may use a tag published only for
+that repository. The dashboard rejects missing or incompatible tags before
+starting a runner.
+
+Use `TENANT_NAME_PREFIX` when dev and prod dashboards share one server or MySQL. With `TENANT_NAME_PREFIX=dev-`, creating tenant `acme` creates Dokku apps `dev-acme-backend` / `dev-acme-frontend` and database `tenant_dev_acme`. Use `TENANT_NAME_PREFIX=prod-` for prod so prod creates `tenant_prod_acme` instead. For two dashboards on one server, set this in each dashboard's `dashboard.env`; keep the shared `config.env` prefix unset or point each dashboard at a matching `DEPLOY_CONFIG_FILE`.
+
 The tenant details page reads the deployed `APP_IMAGE_VERSION` from the
 running app, so the Sync form remains on the selected tag instead of falling
-back to a catalog placeholder. Use `TENANT_NAME_PREFIX` when dev and prod
-dashboards share one server or MySQL. With `TENANT_NAME_PREFIX=dev-`, creating
-tenant `acme` creates Dokku apps `dev-acme-backend` /
-`dev-acme-frontend` and database `tenant_dev_acme`. Use
-`TENANT_NAME_PREFIX=prod-` for prod so prod creates `tenant_prod_acme` instead.
-For two dashboards on one server, set this in each dashboard's
-`dashboard.env`; keep the shared `config.env` prefix unset or point each
-dashboard at a matching `DEPLOY_CONFIG_FILE`.
+back to a catalog placeholder.
+
+The per-tenant auto-redeploy toggle is persisted as
+`<TENANT_STATE_DIR>/<tenant>.json`. When `auto-pull.sh` runs on the host, mount
+the same directory into the dashboard container so a disabled tenant is not
+redeployed by the poller.
+
+Backup, restore, and tenant lifecycle commands run in sidecar containers. The
+`BACKUP_DIR` and `STORAGE_ROOT` host paths must be mounted into the dashboard
+container and be writable by the runner so file archives and restores persist
+on the server.
+
+`BASE_DOMAIN` is a hostname only (for example, `ifritah.com`), and
+`PUBLIC_PROTOCOL` is the one scheme used for generated tenant/site links and
+frontend API URLs. Production rejects `localhost`, `localtest.me`, loopback
+domains, and HTTP public URLs; local development may use `http` and local
+hostnames.
 
 `LOG_DIR` is a persistent, writable directory mounted by both Compose
 profiles. The dashboard stores application log lines and recent operation
@@ -110,6 +144,15 @@ DASHBOARD_LOCAL_DOKKU_PERF=1 go test ./internal/web -run TestLocalDokkuSnapshotT
 
 The dashboard grid uses cached snapshots and a bounded parallel summary collector. Increase `DASHBOARD_SNAPSHOT_WORKERS` only if the host can handle more concurrent Docker inspect work.
 
+Health data keeps lifecycle state separate from the HTTP probe. The legacy
+`state` and `http` app fields remain available; new API/SSE fields include
+`lifecycle_state`, `probe.status`, `probe.http_code`, `probe.checked_at`,
+`probe.error`, and `probe.unavailable_reason`. HTTP `404` is an HTTP result,
+while HTTP `000` is shown with the probe failure or unavailable reason rather
+than being treated as a lifecycle state. Snapshot events also expose
+`dokku_status`, `dokku_checked_at`, and `dokku_error`; the legacy `healthy`
+boolean remains available.
+
 Generate a password hash:
 
 ```sh
@@ -118,6 +161,10 @@ go run ./cmd/hashpw 'your-password'
 ```
 
 Set `DASHBOARD_ENV_FILE` to a writable mounted copy of `dashboard.env` to enable password changes from the UI. The production compose file mounts `./dashboard.env` at `/app/dashboard.env` and writes the new `ADMIN_PASSWORD_HASH` there.
+
+The dashboard stores application logs and lifecycle activity as private JSONL
+files under `LOG_DIR`; mount that directory on durable storage to retain the
+history across dashboard restarts.
 
 Generate a session key (so sessions survive restarts):
 
@@ -183,3 +230,12 @@ dokku letsencrypt:enable admin-prod
   that file writable only by the dashboard container and server admins.
 - The container does not need its own `dokku` user; commands execute inside
   the dokku container via `docker exec`.
+
+## Build identity
+
+Published dashboard images embed a non-secret version and commit identity in
+the binary. The image workflow passes `BUILD_VERSION` and `BUILD_COMMIT`,
+publishes matching OCI labels, and runs dashboard tests before publication.
+Operators can inspect the identity at `/version` or in the dashboard footer;
+`/healthz` keeps its plain `ok` response and adds the same identity in headers.
+The `/version` asset digest covers both embedded templates and static assets.

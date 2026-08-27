@@ -1,3 +1,5 @@
+# Build a reviewable backend image for same-repository pull requests.
+# Fork pull requests are intentionally not given Docker Hub credentials.
 name: Build PR Backend Image
 
 on:
@@ -17,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -49,7 +53,11 @@ jobs:
           tags: |
             ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.branch_tag }}
             ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.immutable_tag }}
+          build-args: |
+            APP_VERSION=${{ steps.tags.outputs.branch_tag }}
+            APP_COMMIT=${{ github.event.pull_request.head.sha }}
           labels: |
+            org.opencontainers.image.version=${{ steps.tags.outputs.branch_tag }}
             org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
             org.opencontainers.image.source=${{ github.event.pull_request.head.repo.html_url }}
           cache-from: type=gha

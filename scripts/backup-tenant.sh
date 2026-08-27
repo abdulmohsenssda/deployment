@@ -6,6 +6,7 @@
 #   ./scripts/backup-tenant.sh <tenant-name>
 #   ./scripts/backup-tenant.sh --all
 #   ./scripts/backup-tenant.sh <tenant-name> --origin user --owner alice
+#   ./scripts/backup-tenant.sh <tenant-name> --origin user --owner alice --label "before release"
 #   ./scripts/backup-tenant.sh --all --config /opt/deployment/config.dev.env
 #
 # Options:
@@ -36,8 +37,9 @@ CONFIG_FILE="$PROJECT_DIR/config.env"
 ORIGIN="auto"
 OWNER="${BACKUP_OWNER:-system}"
 OWNER_EXPLICIT=0
-RETENTION_OVERRIDE=""
 LABEL=""
+LABEL_EXPLICIT=0
+RETENTION_OVERRIDE=""
 DO_PRUNE=1
 REQUIRE_VERIFIED=0
 ARGS=()
@@ -46,7 +48,7 @@ while [ "$#" -gt 0 ]; do
         --config)           CONFIG_FILE="$2"; shift 2 ;;
         --origin)           ORIGIN="$2"; shift 2 ;;
         --owner)            OWNER="$2"; OWNER_EXPLICIT=1; shift 2 ;;
-        --label)            LABEL="$2"; shift 2 ;;
+        --label)            LABEL="$2"; LABEL_EXPLICIT=1; shift 2 ;;
         --retention-days)   RETENTION_OVERRIDE="$2"; shift 2 ;;
         --no-prune)         DO_PRUNE=0; shift ;;
         --require-verified) REQUIRE_VERIFIED=1; shift ;;
@@ -63,6 +65,9 @@ esac
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 if [ "$OWNER_EXPLICIT" -eq 0 ]; then
     OWNER="${BACKUP_OWNER:-system}"
+fi
+if [ "$LABEL_EXPLICIT" -eq 0 ]; then
+    LABEL="${BACKUP_LABEL:-}"
 fi
 
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
@@ -82,7 +87,7 @@ log()  { echo -e "${GREEN}[+]${NC} $*"; }
 warn() { echo -e "${YELLOW}[!]${NC} $*"; }
 err()  { echo -e "${RED}[✗]${NC} $*" >&2; }
 
-if [ ${#LABEL} -gt 120 ] || [[ "$LABEL" == *$'\n'* || "$LABEL" == *$'\r'* || "$LABEL" == *$'\t'* ]]; then
+if [ "${#LABEL}" -gt 120 ] || [[ "$LABEL" =~ [[:cntrl:]] ]]; then
     err "Backup label must be at most 120 characters and contain no control characters."
     exit 2
 fi
@@ -173,7 +178,7 @@ elif [ -n "${1:-}" ]; then
     backup_tenant "$(tenant_full_name "$1")"
     [ "$LAST_VERIFIED" = "true" ] || OVERALL_VERIFIED="false"
 else
-    echo "Usage: $0 <tenant-name> | --all [--origin user|auto] [--owner <name>]"
+    echo "Usage: $0 <tenant-name> | --all [--origin user|auto] [--owner <name>] [--label <label>]"
     exit 1
 fi
 

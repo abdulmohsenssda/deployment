@@ -13,6 +13,8 @@
 # On the server, update is just:
 #   docker pull ssdawweq/dokku-dashboard:prod
 #   docker compose -f docker-compose.prod.yml up -d --force-recreate
+#
+# BUILD_VERSION and BUILD_COMMIT are embedded in the binary and OCI labels.
 # =============================================================================
 
 # ── Stage 1: compile ─────────────────────────────────────────────────────────
@@ -26,8 +28,17 @@ RUN go mod download
 
 # Build a fully static binary.
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-s -w" -trimpath -o /dashboard .
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+RUN case "$BUILD_VERSION" in ""|*[!A-Za-z0-9._-]*) \
+      echo "BUILD_VERSION must contain only letters, digits, '.', '_' or '-'" >&2; exit 1 ;; \
+    esac \
+ && case "$BUILD_COMMIT" in ""|*[!A-Za-z0-9._-]*) \
+      echo "BUILD_COMMIT must contain only letters, digits, '.', '_' or '-'" >&2; exit 1 ;; \
+    esac \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w -X github.com/abdul-mohsen/deployment/dashboard/internal/buildinfo.Version=${BUILD_VERSION} -X github.com/abdul-mohsen/deployment/dashboard/internal/buildinfo.Commit=${BUILD_COMMIT}" \
+    -trimpath -o /dashboard .
 
 # ── Stage 2: minimal runtime ─────────────────────────────────────────────────
 # Use alpine (12 MB) instead of docker:27-cli (278 MB).
@@ -39,6 +50,9 @@ FROM debian:bookworm-slim AS tzdata
 
 FROM alpine:3.20
 
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+
 # Copy ca-certificates from the builder (avoids apk network calls on restricted networks).
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # Go's Alpine image does not ship zoneinfo; copy it from a data-only stage.
@@ -49,6 +63,9 @@ COPY --from=docker-bin /usr/local/bin/docker /usr/local/bin/docker
 
 # Dashboard binary.
 COPY --from=builder /dashboard /app/dashboard
+
+LABEL org.opencontainers.image.version=$BUILD_VERSION \
+      org.opencontainers.image.revision=$BUILD_COMMIT
 
 WORKDIR /app
 EXPOSE 8080

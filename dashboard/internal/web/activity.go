@@ -62,8 +62,12 @@ func (s *server) writeActivity(w http.ResponseWriter, key string) {
 	entries := make([]logbuf.Entry, 0)
 	if s.logs != nil {
 		entries = s.logs.Snapshot(key)
+		if entries == nil {
+			entries = make([]logbuf.Entry, 0)
+		}
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
 }
 

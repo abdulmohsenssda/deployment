@@ -7,9 +7,9 @@
     <span class="page-subtitle">Tenant detail — lifecycle, version sync, backups, auto-redeploy</span>
   </div>
   <div class="page-header-right">
-    {{with .Frontend}}{{if and .Domains (eq .State "running")}}
-    <a href="http://{{index .Domains 0}}" target="_blank" rel="noopener" class="btn btn-secondary">Open site ↗</a>
-    {{end}}{{end}}
+    {{if and .SiteURL .Frontend (eq .Frontend.State "running")}}
+    <a href="{{.SiteURL}}" target="_blank" rel="noopener" class="btn btn-secondary">Open site ↗</a>
+    {{end}}
   </div>
 </div>
 
@@ -19,20 +19,54 @@
   <div class="resource-card">
     <div class="rc-header">
       <span class="rc-label">Backend</span>
-      <span class="badge {{stateClr .State}}">{{.State}}</span>
+      <span class="badge {{stateClr .State}}" title="Lifecycle state">Lifecycle: {{.State}}</span>
     </div>
     <div class="rc-image" title="{{.Image}}">{{or .Image "—"}}</div>
-    <div class="rc-meta">HTTP {{.HTTPCode}} · port {{or .IntPort "—"}}</div>
+    <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
+    <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
+    <div class="rc-meta">{{probeMessage .Probe}}</div>
+    <div class="rc-meta">Port {{or .IntPort "—"}}</div>
+    {{if appDetailURL .Name}}
+    <a href="{{appDetailURL .Name}}" class="app-detail-link">View backend app details ↗</a>
+    {{else}}
+    <div class="rc-meta rc-unavailable">App details unavailable</div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="resource-card resource-card-unavailable">
+    <div class="rc-header">
+      <span class="rc-label">Backend</span>
+      <span class="badge state-missing">Unavailable</span>
+    </div>
+    <div class="rc-value">Backend app unavailable</div>
+    <div class="rc-meta">No backend app data was found for this tenant.</div>
   </div>
   {{end}}
   {{with .Frontend}}
   <div class="resource-card">
     <div class="rc-header">
       <span class="rc-label">Frontend</span>
-      <span class="badge {{stateClr .State}}">{{.State}}</span>
+      <span class="badge {{stateClr .State}}" title="Lifecycle state">Lifecycle: {{.State}}</span>
     </div>
     <div class="rc-image" title="{{.Image}}">{{or .Image "—"}}</div>
+    <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
+    <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
+    <div class="rc-meta">{{probeMessage .Probe}}</div>
     <div class="rc-meta">{{join .Domains " · "}}</div>
+    {{if appDetailURL .Name}}
+    <a href="{{appDetailURL .Name}}" class="app-detail-link">View frontend app details ↗</a>
+    {{else}}
+    <div class="rc-meta rc-unavailable">App details unavailable</div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="resource-card resource-card-unavailable">
+    <div class="rc-header">
+      <span class="rc-label">Frontend</span>
+      <span class="badge state-missing">Unavailable</span>
+    </div>
+    <div class="rc-value">Frontend app unavailable</div>
+    <div class="rc-meta">No frontend app data was found for this tenant.</div>
   </div>
   {{end}}
 
@@ -44,7 +78,7 @@
         <input type="checkbox" id="auto-redeploy-toggle"
                {{if .AutoRedeploy}}checked{{end}}
                data-tenant="{{.Tenant}}">
-        <span id="auto-redeploy-status">{{if .AutoRedeploy}}Enabled{{else}}Disabled{{end}}</span>
+        <span id="auto-redeploy-status" role="status" aria-live="polite" aria-atomic="true">{{if .AutoRedeploy}}Enabled{{else}}Disabled{{end}}</span>
       </label>
       <p style="font-size:11px;color:var(--text-dim);margin:6px 0 0;line-height:1.4">
         When enabled, new image digests on Docker Hub trigger an automatic backup + redeploy.
@@ -64,10 +98,11 @@
         <input id="input-image_version" type="text" name="image_version"
                value="{{.DefaultVersion}}" placeholder="e.g. v1.2.3 or feature-branch"
                class="form-input" style="width:100%" autocomplete="off"
-               data-tag-search required>
+               data-tag-search data-image-scope="both" required aria-label="Image version">
         <datalist id="dl-image_version"></datalist>
+        <p data-image-compatibility class="field-help image-compatibility" hidden></p>
       </div>
-      <button class="btn btn-primary">Sync</button>
+      <button type="submit" class="btn btn-primary" aria-controls="tenant-out" aria-busy="false">Sync</button>
     </form>
   </div>
 
@@ -75,11 +110,16 @@
   <div class="panel panel-sm">
     <div class="panel-title">Lifecycle</div>
     <div class="action-row">
-      <button data-tenant-act="start"   class="tenant-act btn btn-success">▶ Start</button>
-      <button data-tenant-act="stop"    class="tenant-act btn btn-danger"  data-confirm="Stop {{.Tenant}}?">⏹ Stop</button>
-      <button data-tenant-act="restart" class="tenant-act btn btn-secondary" data-confirm="Restart {{.Tenant}}?">↺ Restart</button>
-      <button data-tenant-act="rebuild" class="tenant-act btn btn-secondary" data-confirm="Rebuild {{.Tenant}}?">⟳ Rebuild</button>
+      <button data-tenant-act="start" class="tenant-act btn btn-success"
+              aria-controls="tenant-out" aria-busy="false">▶ Start</button>
+      <button data-tenant-act="stop" class="tenant-act btn btn-danger" data-confirm="Stop {{.Tenant}}?"
+              aria-controls="tenant-out" aria-busy="false">⏹ Stop</button>
+      <button data-tenant-act="restart" class="tenant-act btn btn-secondary" data-confirm="Restart {{.Tenant}}?"
+              aria-controls="tenant-out" aria-busy="false">↺ Restart</button>
+      <button data-tenant-act="rebuild" class="tenant-act btn btn-secondary" data-confirm="Rebuild {{.Tenant}}?"
+              aria-controls="tenant-out" aria-busy="false">⟳ Rebuild</button>
       <button id="tenant-delete-btn" class="btn btn-danger"
+              aria-controls="tenant-out" aria-busy="false"
               style="margin-left:8px;border:1px solid #b91c1c;background:#7f1d1d">🗑 Delete tenant</button>
     </div>
   </div>
@@ -102,87 +142,129 @@
     <span class="panel-title" style="border:none;padding:0;margin:0">Access Credentials</span>
     <div style="font-size:11px;color:var(--text-muted)">Admin and manager user accounts for this tenant</div>
   </div>
-  <div class="credentials-grid">
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;min-height:48px">
+    <div id="credentials-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="true"
+         style="font-size:12px;color:var(--text-muted)">Loading credentials…</div>
+    <button id="credentials-retry" type="button" class="btn btn-secondary" hidden
+            aria-label="Retry loading credentials">Retry</button>
+  </div>
+  <div class="credentials-grid" style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <!-- Admin -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Admin account</div>
-      <div id="cred-admin-user" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
+      <div id="cred-admin-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
+      <label for="cred-admin-pass" class="field-label">New admin password</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="cred-admin-pass" type="password" placeholder="New password (min 8 chars)"
+        <input id="cred-admin-pass" name="admin_password" type="password" placeholder="New password (min 8 chars)"
+          autocomplete="new-password" minlength="8" required
+          aria-describedby="cred-admin-pass-help cred-admin-msg"
+          aria-label="New admin password"
           class="form-input" style="flex:1;min-width:160px">
-        <button id="cred-admin-btn" data-role="admin" class="btn btn-primary" style="flex-shrink:0">Change</button>
+        <button type="button" id="cred-admin-btn" data-role="admin" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
-      <div id="cred-admin-msg" style="font-size:11px;margin-top:4px;height:14px"></div>
+      <p id="cred-admin-pass-help" class="field-help">Minimum 8 characters. Updates the tenant admin account.</p>
+      <div id="cred-admin-msg" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px;margin-top:4px;height:14px"></div>
     </div>
     <!-- Manager -->
     <div>
       <div class="field-label" style="margin-bottom:8px">Manager account</div>
-      <div id="cred-manager-user" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
+      <div id="cred-manager-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
+      <label for="cred-manager-pass" class="field-label">New manager password</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="cred-manager-pass" type="password" placeholder="New password (min 8 chars)"
+        <input id="cred-manager-pass" name="manager_password" type="password" placeholder="New password (min 8 chars)"
+          autocomplete="new-password" minlength="8" required
+          aria-describedby="cred-manager-pass-help cred-manager-msg"
+          aria-label="New manager password"
           class="form-input" style="flex:1;min-width:160px">
-        <button id="cred-manager-btn" data-role="manager" class="btn btn-primary" style="flex-shrink:0">Change</button>
+        <button type="button" id="cred-manager-btn" data-role="manager" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
-      <div id="cred-manager-msg" style="font-size:11px;margin-top:4px;height:14px"></div>
+      <p id="cred-manager-pass-help" class="field-help">Minimum 8 characters. Updates the tenant manager account.</p>
+      <div id="cred-manager-msg" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px;margin-top:4px;height:14px"></div>
     </div>
   </div>
 </div>
 
-<!-- Durable action history -->
-<div class="panel activity-panel">
-  <div class="panel-title">Recent activity</div>
-  <div id="tenant-out" class="terminal terminal-compact" aria-live="polite"></div>
+<!-- Action output terminal -->
+<div id="tenant-activity-panel" class="panel activity-panel operation-panel" data-state="idle" data-operation-state="idle" aria-busy="false">
+  <div class="panel-toolbar operation-toolbar">
+    <span class="panel-title">Action output</span>
+    <span id="tenant-out-status" class="operation-status operation-status-idle" data-operation-status="idle">Idle</span>
+  </div>
+  <div id="tenant-out-status-detail" class="operation-detail" data-operation-detail role="status" aria-live="polite">
+    Ready — run a tenant action to see activity.
+  </div>
+  <div id="tenant-out" class="terminal" role="log" aria-live="polite" aria-atomic="false"
+       aria-relevant="additions" aria-busy="false" tabindex="0">
+    <div id="tenant-out-empty" class="terminal-empty">No tenant activity yet. Run an action to see results.</div>
+  </div>
 </div>
 
 <!-- Backup panel -->
-<div class="panel">
+<div class="panel backup-panel">
   <div class="panel-toolbar backup-toolbar">
-    <span class="panel-title" style="border:none;padding:0;margin:0">Backups</span>
-    <div style="font-size:11px;color:var(--text-muted)">
-      Auto backups retained {{.BackupRetentionDays}} days &nbsp;·&nbsp; User backups kept until deleted (max {{.MaxUserBackups}})
+    <div class="backup-toolbar-heading">
+      <span class="panel-title backup-toolbar-title">Backups</span>
+      <span id="backup-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">Loading backups…</span>
+      <span class="backup-retention">
+        Auto backups retained {{.BackupRetentionDays}} days · User backups kept until deleted (max {{.MaxUserBackups}})
+      </span>
     </div>
-    <div class="panel-toolbar-right">
-      <input id="backup-label" type="text" placeholder="Optional label for backup…"
-             class="search-input" style="width:200px">
-      <button id="create-backup-btn" class="btn btn-primary">+ Create Backup</button>
+    <div class="backup-toolbar-controls" aria-label="Backup history controls">
+      <label class="backup-field">
+        <span class="backup-field-label">Search history</span>
+        <input id="backup-search" type="search" placeholder="ID, label, owner, origin…"
+               class="search-input" autocomplete="off">
+      </label>
+      <label class="backup-field">
+        <span class="backup-field-label">Label new backup</span>
+        <input id="backup-label" type="text" placeholder="Optional label…"
+               class="search-input">
+      </label>
+      <button id="create-backup-btn" type="button" class="btn btn-primary">+ Create Backup</button>
     </div>
   </div>
-  <div class="table-wrap">
-    <table class="data-table" id="backup-table">
+  <p id="backup-responsive-help" class="backup-responsive-help">
+    On narrow screens, each backup is shown as a card and its actions wrap below the details.
+  </p>
+  <div class="table-wrap backup-table-wrap" role="region" aria-label="Tenant backup history" tabindex="0">
+    <table class="data-table backup-table" id="backup-table" aria-busy="true"
+           aria-describedby="backup-responsive-help backup-status">
       <thead>
         <tr>
-          <th>Backup ID</th>
-          <th>Created</th>
-          <th>Origin</th>
-          <th>Owner</th>
-          <th>Verified</th>
-          <th>Label</th>
-          <th>DB Artifact</th>
-          <th style="width:200px">Actions</th>
+          <th scope="col">Backup ID</th>
+          <th scope="col">Created</th>
+          <th scope="col">Origin</th>
+          <th scope="col">Owner</th>
+          <th scope="col">Label</th>
+          <th scope="col">Verified</th>
+          <th scope="col">DB Artifact</th>
+          <th scope="col">Actions</th>
         </tr>
       </thead>
       <tbody id="backup-tbody">
-        <tr><td colspan="8" class="empty-cell">Loading backups…</td></tr>
+        <tr class="backup-empty-row"><td colspan="8" class="empty-cell">Loading backups…</td></tr>
       </tbody>
     </table>
   </div>
 </div>
 
 <!-- Restore confirmation modal -->
-<div id="restore-modal" class="modal-overlay" style="display:none">
+<div id="restore-modal" class="modal-overlay" style="display:none"
+     role="dialog" aria-modal="true" aria-labelledby="restore-modal-title"
+     aria-describedby="restore-modal-desc" aria-hidden="true">
   <div class="modal-box">
-    <h2 class="modal-title">Restore from backup</h2>
+    <h2 id="restore-modal-title" class="modal-title">Restore from backup</h2>
     <p id="restore-modal-desc" class="modal-desc"></p>
     <div class="modal-warn">
       A verified safety backup of the current state will be taken before restoring.
     </div>
     <div class="modal-actions">
-      <button id="restore-cancel-btn" class="btn btn-secondary">Cancel</button>
-      <button id="restore-confirm-btn" class="btn btn-danger">Restore</button>
+      <button id="restore-cancel-btn" type="button" class="btn btn-secondary">Cancel</button>
+      <button id="restore-confirm-btn" type="button" class="btn btn-danger">Restore</button>
     </div>
   </div>
 </div>
@@ -192,17 +274,63 @@
   'use strict';
   const tenant = '{{.Tenant}}';
   const out = document.getElementById('tenant-out');
+  const activityPanel = document.getElementById('tenant-activity-panel');
+  const activityStore = window.DashboardOperation.createStore('dashboard:tenant-activity:' + tenant);
   const form = document.getElementById('tenant-version-form');
   const backupTbody = document.getElementById('backup-tbody');
+  const backupSearch = document.getElementById('backup-search');
   const restoreModal = document.getElementById('restore-modal');
+  const tenantActionButtons = Array.from(document.querySelectorAll('.tenant-act'));
+  const createBackupBtn = document.getElementById('create-backup-btn');
+  const restoreConfirmBtn = document.getElementById('restore-confirm-btn');
+  const restoreCancelBtn = document.getElementById('restore-cancel-btn');
+  let backupItems = [];
   let pendingRestoreID = null;
+  let activityLines = [];
+  let activityState = 'idle';
+  let tenantActionBusy = false;
   let activityDirty = false;
 
   // ── Output terminal helpers ────────────────────────────────
-  function append(line) {
-    activityDirty = true;
-    out.textContent += line + '\n';
+  function emptyMarkup() {
+    return '<div id="tenant-out-empty" class="terminal-empty">No tenant activity yet. Run an action to see results.</div>';
+  }
+
+  function persistActivity() {
+    activityStore.save(activityLines, activityState);
+  }
+
+  function setActivityState(state, detail) {
+    activityState = window.DashboardOperation.setState(activityPanel, state, detail);
+    persistActivity();
+  }
+
+  function append(line, persist = true, announce = true) {
+    const value = window.stripTerminalControls(String(line));
+    if (persist) activityDirty = true;
+    activityLines.push(value);
+    activityLines = activityLines.slice(-window.DashboardOperation.maxEntries);
+    out.querySelector('.terminal-empty')?.remove();
+    const lineEl = document.createElement('span');
+    lineEl.className = 'terminal-line';
+    lineEl.textContent = value;
+    if (!announce) lineEl.setAttribute('aria-hidden', 'true');
+    out.append(lineEl, document.createTextNode('\n'));
     out.scrollTop = out.scrollHeight;
+    if (persist) persistActivity();
+  }
+
+  function restoreActivity() {
+    const saved = activityStore.load();
+    activityLines = saved.entries.slice(-window.DashboardOperation.maxEntries);
+    out.innerHTML = '';
+    activityLines.forEach(line => append(line, false));
+    if (activityLines.length === 0) out.innerHTML = emptyMarkup();
+    const recovered = window.DashboardOperation.recoveredState(activityState = saved.state, activityLines.length > 0);
+    const detail = saved.state === 'running'
+      ? 'Previous operation did not finish; review the saved activity.'
+      : undefined;
+    setActivityState(recovered, detail);
   }
 
   async function loadActivity() {
@@ -211,12 +339,12 @@
       if (!res.ok) return;
       const data = await res.json();
       const entries = data.entries || [];
-      if (activityDirty) return;
-      out.textContent = entries.map((entry) => {
+      if (activityDirty || activityLines.length > 0) return;
+      entries.forEach((entry) => {
         const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
-        return at + (entry.line || '');
-      }).join('\n');
-      if (entries.length) out.textContent += '\n';
+        append(at + (entry.line || ''), false, false);
+      });
+      if (entries.length) setActivityState('success', 'Loaded saved tenant activity.');
       out.scrollTop = out.scrollHeight;
     } catch (_) {
       // Activity is supplemental; the live operation output remains usable.
@@ -230,39 +358,51 @@
   }
 
   async function streamSSE(url, method, body) {
-    append('--- ' + method + ' ' + url + ' @ ' + new Date().toISOString() + ' ---');
+    setActivityState('running', 'Running — streaming operation output…');
+    append('--- ' + method + ' ' + url + ' @ ' + new Date().toISOString() + ' ---', true, false);
     const opts = { method };
     if (body) {
       opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
       opts.body = typeof body === 'string' ? body : new URLSearchParams(body).toString();
     }
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      append('✖ ' + res.status + ' ' + await res.text());
-      return;
-    }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    let streamError = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const ln of block.split('\n')) {
-          if (ln.startsWith('data: ')) append(ln.slice(6));
-          if (ln.startsWith('event: error')) {
-            streamError = 'operation failed';
-            append('✖ FAILED');
+    try {
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        append('✖ ' + res.status + ' ' + await res.text());
+        setActivityState('failure', 'Failed — the operation returned HTTP ' + res.status + '.');
+        return false;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', streamFailed = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          for (const ln of block.split('\n')) {
+            if (ln.startsWith('data: ')) append(ln.slice(6));
+            if (ln.startsWith('event: error')) {
+              streamFailed = true;
+              append('✖ FAILED');
+            }
           }
         }
       }
+      if (streamFailed) {
+        setActivityState('failure', 'Failed — the operation reported an error.');
+        return false;
+      }
+      setActivityState('success', 'Success — operation completed.');
+      return true;
+    } catch (e) {
+      append('✖ Operation failed: ' + (e && e.message ? e.message : e));
+      setActivityState('failure', 'Failed — the operation stream could not be completed.');
+      return false;
     }
-    if (streamError) throw new Error(streamError);
   }
 
   // ── Sync version form ──────────────────────────────────────
@@ -270,47 +410,62 @@
   let syncBusy = false;
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    if (syncBusy) return; // idempotency: ignore re-submits while streaming
+    const button = form.querySelector('button[type="submit"]');
+    if (syncBusy || button?.disabled) return;
+    const imageInput = form.elements.image_version;
+    if (imageInput && !imageInput.checkValidity()) {
+      imageInput.reportValidity();
+      return;
+    }
     syncBusy = true;
-    const prevLabel = syncBtn ? syncBtn.textContent : '';
-    if (syncBtn) { syncBtn.disabled = true; syncBtn.textContent = 'Syncing…'; }
+    const prevLabel = button ? button.textContent : '';
+    if (button) {
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = 'Syncing…';
+    }
     try {
       await streamSSE('/scripts/update-tenant/run', 'POST', new FormData(form));
     } catch (e) {
       append('✖ sync failed: ' + (e && e.message ? e.message : e));
     } finally {
       syncBusy = false;
-      if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = prevLabel; }
+      if (button) {
+        button.disabled = false;
+        button.setAttribute('aria-busy', 'false');
+        button.textContent = prevLabel;
+      }
     }
   });
 
   // ── Lifecycle buttons ──────────────────────────────────────
-  const lifecycleBtns = Array.from(document.querySelectorAll('.tenant-act'));
-  let lifecycleBusy = false;
-  function setLifecycleBusy(busy) {
-    lifecycleBusy = busy;
-    // Disable the whole group so start/stop/restart/rebuild can't overlap.
-    lifecycleBtns.forEach((b) => { b.disabled = busy; });
-  }
-  lifecycleBtns.forEach((btn) => {
+  tenantActionButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (lifecycleBusy) return; // idempotency: one lifecycle action at a time
+      if (tenantActionBusy) return;
       const verb = btn.dataset.tenantAct;
       const msg = btn.dataset.confirm;
       if (msg && !confirm(msg)) return;
-      const prevLabel = btn.textContent;
-      setLifecycleBusy(true);
-      btn.textContent = '…';
-      append('--- ' + verb + ' ' + tenant + ' ---');
+      tenantActionBusy = true;
+      tenantActionButtons.forEach((actionBtn) => {
+        actionBtn.disabled = true;
+        actionBtn.setAttribute('aria-busy', 'true');
+      });
+      setActivityState('running', 'Running — applying ' + verb + ' to ' + tenant + '…');
+      append('--- ' + verb + ' ' + tenant + ' ---', true, false);
       try {
         const res = await fetch('/tenants/' + tenant + '/' + verb, { method: 'POST' });
-        const text = await res.text();
-        append((res.ok ? '' : '✖ ') + text.trimEnd());
+        append(await res.text());
+        setActivityState(res.ok ? 'success' : 'failure',
+          res.ok ? 'Success — ' + verb + ' completed.' : 'Failed — ' + verb + ' returned HTTP ' + res.status + '.');
       } catch (e) {
         append('✖ ' + verb + ' failed: ' + (e && e.message ? e.message : e));
+        setActivityState('failure', 'Failed — ' + verb + ' could not be completed.');
       } finally {
-        btn.textContent = prevLabel;
-        setLifecycleBusy(false);
+        tenantActionButtons.forEach((actionBtn) => {
+          actionBtn.disabled = false;
+          actionBtn.setAttribute('aria-busy', 'false');
+        });
+        tenantActionBusy = false;
       }
     });
   });
@@ -334,15 +489,15 @@
         return;
       }
       deleteBtn.disabled = true;
-      append('--- deleting ' + tenant + ' ---');
+      deleteBtn.setAttribute('aria-busy', 'true');
       const body = new URLSearchParams({ confirm: tenant });
-      try {
-        await streamSSE('/tenants/' + tenant + '/delete', 'POST', body);
+      const completed = await streamSSE('/tenants/' + tenant + '/delete', 'POST', body);
+      if (completed) {
         append('--- tenant deleted; returning to fleet in 3s ---');
         setTimeout(() => { window.location.href = '/'; }, 3000);
-      } catch (e) {
+      } else {
         deleteBtn.disabled = false;
-        append('✖ delete failed: ' + (e && e.message ? e.message : e));
+        deleteBtn.setAttribute('aria-busy', 'false');
       }
     });
   }
@@ -354,38 +509,89 @@
     toggle.addEventListener('change', async () => {
       const enabled = toggle.checked;
       toggle.disabled = true;
+      toggle.setAttribute('aria-busy', 'true');
+      setActivityState('running', 'Running — saving auto-redeploy setting…');
       try {
         const res = await fetch('/tenants/' + tenant + '/auto-redeploy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: 'enabled=' + (enabled ? '1' : '0'),
         });
-        if (!res.ok) throw new Error(String(res.status));
+          if (!res.ok) {
+          toggle.checked = !enabled; // revert
+          append('✖ Failed to save auto-redeploy setting: ' + res.status);
+          setActivityState('failure', 'Failed — auto-redeploy setting was not saved.');
+          return;
+        }
         if (statusLabel) statusLabel.textContent = enabled ? 'Enabled' : 'Disabled';
         append('Auto-redeploy ' + (enabled ? 'enabled' : 'disabled') + ' for ' + tenant);
+        setActivityState('success', 'Success — auto-redeploy setting saved.');
       } catch (e) {
         toggle.checked = !enabled; // revert
         append('✖ Failed to save auto-redeploy setting: ' + (e && e.message ? e.message : e));
+        setActivityState('failure', 'Failed — auto-redeploy setting was not saved.');
       } finally {
         toggle.disabled = false;
+        toggle.setAttribute('aria-busy', 'false');
       }
     });
   }
 
   // ── Credentials ───────────────────────────────────────────
+  const credentialStatus = document.getElementById('credentials-status');
+  const credentialRetry = document.getElementById('credentials-retry');
+
+  function setCredentialStatus(message, state) {
+    if (!credentialStatus) return;
+    credentialStatus.textContent = message;
+    credentialStatus.dataset.state = state;
+    credentialStatus.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
+    credentialStatus.style.color = state === 'error' ? 'var(--red)' : 'var(--text-muted)';
+  }
+
+  function setCredentialFields(message, busy) {
+    ['admin', 'manager'].forEach((role) => {
+      const el = document.getElementById('cred-' + role + '-user');
+      if (!el) return;
+      el.textContent = message;
+      el.setAttribute('aria-busy', busy ? 'true' : 'false');
+    });
+  }
+
   async function loadCredentials() {
+    setCredentialStatus('Loading credentials…', 'loading');
+    setCredentialFields('Loading…', true);
+    if (credentialRetry) credentialRetry.disabled = true;
     try {
       const res = await fetch('/tenants/' + tenant + '/credentials');
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const adminEl = document.getElementById('cred-admin-user');
       const managerEl = document.getElementById('cred-manager-user');
-      if (adminEl) adminEl.textContent = data.admin_user || '(not set)';
-      if (managerEl) managerEl.textContent = data.manager_user || '(not set)';
+      if (adminEl) {
+        adminEl.textContent = data.admin_user || '(not set)';
+        adminEl.setAttribute('aria-busy', 'false');
+      }
+      if (managerEl) {
+        managerEl.textContent = data.manager_user || '(not set)';
+        managerEl.setAttribute('aria-busy', 'false');
+      }
+      setCredentialStatus('Credentials loaded.', 'success');
+      if (credentialRetry) credentialRetry.hidden = true;
     } catch (e) {
+      setCredentialFields('Failed to load credentials.', false);
+      setCredentialStatus('Failed to load credentials. Try again.', 'error');
+      if (credentialRetry) {
+        credentialRetry.hidden = false;
+        credentialRetry.disabled = false;
+      }
       console.warn('Failed to load credentials:', e);
+    } finally {
+      if (credentialRetry && credentialRetry.hidden) credentialRetry.disabled = false;
     }
   }
+
+  credentialRetry?.addEventListener('click', loadCredentials);
 
   function setupCredBtn(role) {
     const btn = document.getElementById('cred-' + role + '-btn');
@@ -400,7 +606,9 @@
         return;
       }
       btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
       if (msg) msg.textContent = '';
+      setActivityState('running', 'Running — updating ' + role + ' credentials…');
       try {
         const res = await fetch('/tenants/' + tenant + '/credentials', {
           method: 'POST',
@@ -412,13 +620,17 @@
           if (msg) { msg.textContent = '✓ ' + data.message; msg.style.color = 'var(--green)'; }
           passInput.value = '';
           append('Password changed for ' + role + ' on ' + tenant);
+          setActivityState('success', 'Success — ' + role + ' password updated.');
         } else {
           if (msg) { msg.textContent = '⚠ ' + (data.warning || 'Failed'); msg.style.color = 'var(--amber)'; }
+          setActivityState('failure', 'Failed — ' + role + ' password was not fully updated.');
         }
       } catch (e) {
         if (msg) { msg.textContent = '✖ Error: ' + e.message; msg.style.color = 'var(--red)'; }
+        setActivityState('failure', 'Failed — ' + role + ' password update could not be completed.');
       } finally {
         btn.disabled = false;
+        btn.setAttribute('aria-busy', 'false');
       }
     });
   }
@@ -428,102 +640,197 @@
   setupCredBtn('manager');
 
   // ── Backup list ────────────────────────────────────────────
+  function showBackupMessage(message, error) {
+    backupTbody.innerHTML =
+      '<tr class="backup-empty-row"><td colspan="8" class="empty-cell"></td></tr>';
+    const cell = backupTbody.querySelector('.empty-cell');
+    cell.textContent = message;
+    if (error) cell.style.color = 'var(--red)';
+    const status = document.getElementById('backup-status');
+    if (status) status.textContent = message;
+  }
+
+  function escapeBackupHTML(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function backupSearchText(backup) {
+    return [
+      backup.id,
+      backup.label,
+      backup.created_at,
+      backup.timestamp,
+      backup.origin,
+      backup.owner,
+      backup.files_artifact,
+      backup.db_artifact || backup.DBArtifact,
+    ].filter(value => value !== undefined && value !== null)
+      .map(String).join(' ').toLowerCase();
+  }
+
+  function renderBackups() {
+    const query = (backupSearch?.value || '').trim().toLowerCase();
+    const backups = backupItems.filter(backup =>
+      !query || backupSearchText(backup).includes(query));
+    if (backupItems.length === 0) {
+      showBackupMessage('No backups yet. Use "Create Backup" to create the first one.');
+      return;
+    }
+    if (backups.length === 0) {
+      showBackupMessage('No backups match "' + query + '".');
+      return;
+    }
+    const status = document.getElementById('backup-status');
+    if (status) status.textContent = backups.length + ' backup' + (backups.length === 1 ? '' : 's') + ' shown.';
+
+    backupTbody.innerHTML = backups.map(b => {
+      const id = String(b.id || '');
+      const safeID = escapeBackupHTML(id);
+      const isUser = b.origin === 'user';
+      const verBadge = b.verified
+        ? '<span class="badge badge-success">✓ verified</span>'
+        : '<span class="badge badge-warn">unverified</span>';
+      const originBadge = isUser
+        ? '<span class="badge badge-info">user</span>'
+        : '<span class="badge badge-neutral">auto</span>';
+      const dbFile = String(b.db_artifact || b.DBArtifact || '');
+      const safeDBFile = escapeBackupHTML(dbFile);
+      const encodedID = encodeURIComponent(id);
+      const dlBtn = dbFile
+        ? `<a href="/tenants/${encodeURIComponent(tenant)}/backups/${encodedID}/download" class="btn-action good" title="Download SQL backup" aria-label="Download SQL backup ${safeID}">⬇ SQL</a>`
+        : '<span class="backup-no-artifact">—</span>';
+      const verifyBtn = `<button type="button" class="btn-action" data-verify="${safeID}" aria-label="Verify backup ${safeID}">✓ Verify</button>`;
+      const restoreBtn = `<button type="button" class="btn-action" data-restore="${safeID}" aria-label="Restore backup ${safeID}">↩ Restore</button>`;
+      const delBtn = isUser
+        ? `<button type="button" class="btn-action warn" data-del="${safeID}" title="Delete user backup" aria-label="Delete user backup ${safeID}">🗑 Delete</button>`
+        : '<span class="backup-policy" title="Auto backups are deleted by retention policy">policy</span>';
+      const ts = String(b.created_at || b.timestamp || '—');
+      const shortTS = ts.length > 19 ? ts.slice(0, 19).replace('T', ' ') : ts;
+      return `<tr>
+        <td data-label="Backup ID"><code class="backup-id">${safeID}</code></td>
+        <td data-label="Created" class="backup-created">${escapeBackupHTML(shortTS)}</td>
+        <td data-label="Origin">${originBadge}</td>
+        <td data-label="Owner" class="backup-owner">${escapeBackupHTML(b.owner || '—')}</td>
+        <td data-label="Label" class="backup-label">${escapeBackupHTML(b.label || '—')}</td>
+        <td data-label="Verified">${verBadge}</td>
+        <td data-label="DB Artifact" class="backup-artifact" title="${safeDBFile}">${safeDBFile || '—'}</td>
+        <td data-label="Actions">
+          <div class="row-actions backup-actions">
+            ${verifyBtn}
+            ${dlBtn}
+            ${restoreBtn}
+            ${delBtn}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    backupTbody.querySelectorAll('[data-verify]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.verify;
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        setActivityState('running', 'Running — verifying backup…');
+        append('--- verify backup ' + id + ' ---');
+        try {
+          const r = await fetch('/tenants/' + encodeURIComponent(tenant) +
+            '/backups/' + encodeURIComponent(id) + '/verify', { method: 'POST' });
+          if (r.ok) {
+            append(await r.text() || ('Backup ' + id + ' verified.'));
+            setActivityState('success', 'Success — backup verified.');
+            await loadBackups();
+          } else {
+            append('✖ Verify failed: ' + await r.text());
+            setActivityState('failure', 'Failed — backup verification failed.');
+          }
+        } catch (e) {
+          append('✖ Verify failed: ' + (e && e.message ? e.message : e));
+          setActivityState('failure', 'Failed — backup verification failed.');
+        } finally {
+          btn.disabled = false;
+          btn.setAttribute('aria-busy', 'false');
+        }
+      });
+    });
+
+    backupTbody.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Permanently delete backup ' + btn.dataset.del + '?\nThis cannot be undone.')) return;
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        setActivityState('running', 'Running — deleting backup…');
+        try {
+          const id = btn.dataset.del;
+          const r = await fetch('/tenants/' + encodeURIComponent(tenant) +
+            '/backups/' + encodeURIComponent(id) + '/delete', { method: 'POST' });
+          if (r.ok) {
+            append('Backup ' + id + ' deleted.');
+            setActivityState('success', 'Success — backup deleted.');
+            await loadBackups();
+          } else {
+            append('✖ Delete failed: ' + await r.text());
+            setActivityState('failure', 'Failed — backup could not be deleted.');
+          }
+        } catch (e) {
+          append('✖ Delete failed: ' + (e && e.message ? e.message : e));
+          setActivityState('failure', 'Failed — backup could not be deleted.');
+        } finally {
+          btn.disabled = false;
+          btn.setAttribute('aria-busy', 'false');
+        }
+      });
+    });
+
+    backupTbody.querySelectorAll('[data-restore]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pendingRestoreID = btn.dataset.restore;
+        document.getElementById('restore-modal-desc').textContent =
+          'Restore tenant "' + tenant + '" from backup: ' + pendingRestoreID;
+        restoreModal.style.display = 'flex';
+        restoreModal.setAttribute('aria-hidden', 'false');
+        document.getElementById('restore-cancel-btn')?.focus();
+      });
+    });
+  }
+
   async function loadBackups() {
+    const backupTable = document.getElementById('backup-table');
+    const backupStatus = document.getElementById('backup-status');
+    if (backupTable) backupTable.setAttribute('aria-busy', 'true');
+    if (backupStatus) backupStatus.textContent = 'Loading backups…';
     try {
       const res = await fetch('/tenants/' + tenant + '/backups');
       if (!res.ok) {
-        backupTbody.innerHTML = `<tr><td colspan="8" class="empty-cell" style="color:var(--red)">Failed to load backups (${res.status}).</td></tr>`;
+        showBackupMessage('Failed to load backups (' + res.status + ').', true);
         return;
       }
       const data = await res.json();
-      const backups = (data.backups || []).sort((a, b) => (b.created_at || b.timestamp || '').localeCompare(a.created_at || a.timestamp || ''));
-      if (backups.length === 0) {
-        backupTbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No backups yet. Click "+ Create Backup" to create the first one.</td></tr>';
-        return;
-      }
-      backupTbody.innerHTML = backups.map(b => {
-        const isUser = b.origin === 'user';
-        const verBadge = b.verified
-          ? '<span class="badge badge-success">✓ verified</span>'
-          : '<span class="badge badge-warn">unverified</span>';
-        const originBadge = isUser
-          ? '<span class="badge badge-info">user</span>'
-          : '<span class="badge badge-neutral">auto</span>';
-        const dbFile = b.db_artifact || b.DBArtifact || '';
-        const safeID = escapeHTML(b.id);
-        const safeLabel = escapeHTML(b.label);
-        const safeDBFile = escapeHTML(dbFile);
-        const encodedID = encodeURIComponent(b.id || '');
-        const dlBtn = dbFile
-          ? `<a href="/tenants/${tenant}/backups/${encodedID}/download" class="btn-action good" title="Download SQL backup">⬇ SQL</a>`
-          : '<span style="font-size:11px;color:var(--text-dim)">—</span>';
-        const restoreBtn = `<button class="btn-action" data-restore="${safeID}">↩ Restore</button>`;
-        const delBtn = isUser
-          ? `<button class="btn-action warn" data-del="${safeID}" title="Delete user backup">🗑</button>`
-          : `<span title="Auto backups are deleted by retention policy" style="font-size:11px;color:var(--text-dim)">policy</span>`;
-        const ts = b.created_at || b.timestamp || '—';
-        const shortTS = ts.length > 19 ? ts.slice(0, 19).replace('T', ' ') : ts;
-        return `<tr>
-          <td><code style="font-size:11px">${safeID}</code></td>
-          <td style="font-size:12px;white-space:nowrap">${escapeHTML(shortTS)}</td>
-          <td>${originBadge}</td>
-          <td style="font-size:12px">${escapeHTML(b.owner || '—')}</td>
-          <td>${verBadge}</td>
-          <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${safeLabel}">${safeLabel || '—'}</td>
-          <td style="font-family:var(--mono);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${safeDBFile}">${safeDBFile || '—'}</td>
-          <td>
-            <div class="row-actions">
-              ${dlBtn}
-              ${restoreBtn}
-              ${delBtn}
-            </div>
-          </td>
-        </tr>`;
-      }).join('');
-
-      // Delete handlers
-      backupTbody.querySelectorAll('[data-del]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          if (!confirm('Permanently delete backup ' + btn.dataset.del + '?\nThis cannot be undone.')) return;
-          btn.disabled = true;
-          try {
-            const r = await fetch('/tenants/' + tenant + '/backups/' + encodeURIComponent(btn.dataset.del) + '/delete', { method: 'POST' });
-            if (!r.ok) throw new Error(await r.text());
-            append('Backup ' + btn.dataset.del + ' deleted.');
-            loadBackups();
-          } catch (e) {
-            append('✖ Delete failed: ' + (e && e.message ? e.message : e));
-            btn.disabled = false;
-          }
-        });
-      });
-
-      // Restore handlers
-      backupTbody.querySelectorAll('[data-restore]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          pendingRestoreID = btn.dataset.restore;
-          document.getElementById('restore-modal-desc').textContent =
-            'Restore tenant "' + tenant + '" from backup: ' + pendingRestoreID;
-          restoreModal.style.display = 'flex';
-        });
-      });
+      backupItems = (data.backups || []).sort((a, b) =>
+        (b.created_at || b.timestamp || '').localeCompare(a.created_at || a.timestamp || ''));
+      renderBackups();
     } catch (e) {
-      backupTbody.innerHTML = `<tr><td colspan="8" class="empty-cell" style="color:var(--red)">Error loading backups: ${e.message}</td></tr>`;
+      showBackupMessage('Error loading backups: ' + e.message, true);
+    } finally {
+      if (backupTable) backupTable.setAttribute('aria-busy', 'false');
     }
   }
 
+  backupSearch?.addEventListener('input', renderBackups);
+
   // Create backup button
-  const createBackupBtn = document.getElementById('create-backup-btn');
   let backupBusy = false;
-  createBackupBtn.addEventListener('click', async () => {
-    if (backupBusy) return;
+  createBackupBtn?.addEventListener('click', async () => {
+    if (backupBusy || createBackupBtn.disabled) return;
     backupBusy = true;
     const prevLabel = createBackupBtn.textContent;
     createBackupBtn.disabled = true;
+    createBackupBtn.setAttribute('aria-busy', 'true');
     createBackupBtn.textContent = 'Creating…';
+    const label = document.getElementById('backup-label').value.trim();
+    const body = label ? 'label=' + encodeURIComponent(label) : '';
     try {
-      const label = document.getElementById('backup-label').value.trim();
-      const body = label ? 'label=' + encodeURIComponent(label) : '';
       await streamSSE('/tenants/' + tenant + '/backup', 'POST', body || null);
       await loadBackups();
     } catch (e) {
@@ -531,33 +838,37 @@
     } finally {
       backupBusy = false;
       createBackupBtn.disabled = false;
+      createBackupBtn.setAttribute('aria-busy', 'false');
       createBackupBtn.textContent = prevLabel;
     }
   });
 
   // Restore modal
-  document.getElementById('restore-cancel-btn').addEventListener('click', () => {
+  restoreCancelBtn?.addEventListener('click', () => {
     restoreModal.style.display = 'none';
+    restoreModal.setAttribute('aria-hidden', 'true');
     pendingRestoreID = null;
   });
-  const restoreConfirmBtn = document.getElementById('restore-confirm-btn');
   let restoreBusy = false;
-  restoreConfirmBtn.addEventListener('click', async () => {
+  restoreConfirmBtn?.addEventListener('click', async () => {
     if (restoreBusy) return;
     if (!pendingRestoreID) return;
     restoreBusy = true;
     const id = pendingRestoreID;
-    restoreModal.style.display = 'none';
-    pendingRestoreID = null;
     restoreConfirmBtn.disabled = true;
+    restoreConfirmBtn.setAttribute('aria-busy', 'true');
+    restoreModal.style.display = 'none';
+    restoreModal.setAttribute('aria-hidden', 'true');
+    pendingRestoreID = null;
     try {
-      await streamSSE('/tenants/' + tenant + '/backups/' + encodeURIComponent(id) + '/restore', 'POST', null);
+      await streamSSE('/tenants/' + encodeURIComponent(tenant) + '/backups/' + encodeURIComponent(id) + '/restore', 'POST', null);
       await loadBackups();
     } catch (e) {
       append('✖ restore failed: ' + (e && e.message ? e.message : e));
     } finally {
       restoreBusy = false;
       restoreConfirmBtn.disabled = false;
+      restoreConfirmBtn.setAttribute('aria-busy', 'false');
     }
   });
 
@@ -565,11 +876,13 @@
   restoreModal.addEventListener('click', (e) => {
     if (e.target === restoreModal) {
       restoreModal.style.display = 'none';
+      restoreModal.setAttribute('aria-hidden', 'true');
       pendingRestoreID = null;
     }
   });
 
   // Initial load
+  restoreActivity();
   loadActivity();
   loadBackups();
 })();

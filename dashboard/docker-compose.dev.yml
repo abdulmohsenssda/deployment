@@ -7,6 +7,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-local}
     image: ssdawweq/dokku-dashboard:dev
     container_name: dokku-dashboard-dev
     restart: unless-stopped
@@ -18,12 +21,14 @@ services:
       DOCKER_BIN: docker
       DOKKU_CONTAINER: dokku
       BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
+      PUBLIC_PROTOCOL: ${PUBLIC_PROTOCOL:-http}
       ADMIN_USER: ${ADMIN_USER:-admin}
       # bcrypt of "admin"
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-$$2a$$10$$wSLpsqKwddxuOPon/l4aGuSQUAg6.cOqx2vnGuWWsayjtvyW5tZse}
       SESSION_KEY: ${SESSION_KEY:-}
       LOG_BUFFER_LINES: 2000
       LOG_DIR: /opt/dashboard-logs
+      TENANT_STATE_DIR: /opt/tenant-state
       COOKIE_SECURE: "false"
       DOCKERHUB_USERNAME: ${DOCKERHUB_USERNAME:-}
       BACKEND_IMAGE: ${BACKEND_IMAGE:-}
@@ -43,14 +48,13 @@ services:
       DEPLOYMENT_DIR: /opt/deployment
       BACKUP_DIR: ${BACKUP_DIR:-/opt/tenant-backups}
       STORAGE_ROOT: ${STORAGE_ROOT:-/opt/tenant-data}
-      TENANT_STATE_DIR: ${TENANT_STATE_DIR:-/opt/tenant-state}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount the repo root read-only so the dashboard can read install.env
       # and config.env to reuse the same MYSQL admin credentials the scripts
       # already use (no need to duplicate them in compose).
       - ${SCRIPTS_HOST_PATH}:/opt/deployment:ro
+      - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs
+      - ${TENANT_STATE_DIR:-./.tenant-state}:/opt/tenant-state
       - ${BACKUP_DIR:-/opt/tenant-backups}:${BACKUP_DIR:-/opt/tenant-backups}
       - ${STORAGE_ROOT:-/opt/tenant-data}:${STORAGE_ROOT:-/opt/tenant-data}
-      - ${TENANT_STATE_DIR:-/opt/tenant-state}:${TENANT_STATE_DIR:-/opt/tenant-state}
-      - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs

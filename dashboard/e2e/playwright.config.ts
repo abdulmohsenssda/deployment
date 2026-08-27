@@ -6,7 +6,7 @@ export default defineConfig({
   retries: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:8088',
+    baseURL: process.env.BASE_URL || 'http://localhost:8088',
     headless: true,
     screenshot: 'only-on-failure',
     video: 'off',

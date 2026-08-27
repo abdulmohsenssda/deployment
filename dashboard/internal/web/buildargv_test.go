@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/abdul-mohsen/deployment/dashboard/internal/config"
 	"github.com/abdul-mohsen/deployment/dashboard/internal/scripts"
@@ -161,16 +160,34 @@ func TestBuildArgv_DeployAll_FrontendVersionExpandsPosImage(t *testing.T) {
 			t.Errorf("argv missing %q\nfull: %s", want, joined)
 		}
 	}
+
+}
+
+func TestBuildArgv_SetTenantImageHonorsSelectedRole(t *testing.T) {
+	setVersionTestEnv(t)
+	sc := scripts.Find("set-tenant-image.sh")
+	if sc == nil {
+		t.Fatal("set-tenant-image.sh not in catalog")
+	}
+	argv, err := buildArgv(sc, url.Values{
+		"_pos_name":     {"fresh"},
+		"type":          {"backend"},
+		"image_version": {"v0.0.2"},
+	})
+	if err != nil {
+		t.Fatalf("buildArgv: %v", err)
+	}
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--backend ssdawweq/ifritah-api:v0.0.2") {
+		t.Fatalf("backend pin missing: %s", joined)
+	}
+	if strings.Contains(joined, "--frontend ") {
+		t.Fatalf("frontend pin should not be emitted for backend selection: %s", joined)
+	}
 }
 
 func TestDashboardTemplatesParse(t *testing.T) {
-	funcs := template.FuncMap{
-		"join":     strings.Join,
-		"now":      func() string { return time.Now().Format("2006-01-02 15:04:05") },
-		"stateClr": stateClass,
-		"httpClr":  httpClass,
-		"json":     templateJSON,
-	}
+	funcs := templateFuncs()
 	for _, name := range []string{"index.html", "app.html", "tenant.html", "scripts.html", "script.html", "releases.html", "password.html"} {
 		if _, err := template.New("").Funcs(funcs).ParseFS(tplFS,
 			"templates/_layout.html",

@@ -1,7 +1,9 @@
 {{define "palette.html"}}
-<div id="palette" class="hidden">
+<div id="palette" class="hidden"
+     role="dialog" aria-modal="true" aria-label="Command palette" aria-hidden="true">
   <div class="palette-box">
     <input id="palette-input" placeholder="Jump to app, run command…" autocomplete="off"
+           aria-label="Search apps and commands"
            class="palette-input">
     <ul id="palette-list"></ul>
     <div class="palette-help">

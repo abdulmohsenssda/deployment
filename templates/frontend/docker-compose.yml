@@ -12,6 +12,7 @@ services:
       context: .
       args:
         APP_VERSION: ${APP_VERSION:-v0.0.1}
+        APP_COMMIT: ${APP_COMMIT:-local}
     image: ${IMAGE_NAME:-local/web}:${APP_VERSION:-v0.0.1}
     env_file: .env
     environment:

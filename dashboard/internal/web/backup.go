@@ -26,9 +26,9 @@ type backupManifest struct {
 	Timestamp     string `json:"timestamp"`
 	Origin        string `json:"origin"`
 	Owner         string `json:"owner"`
+	Label         string `json:"label,omitempty"`
 	FilesArtifact string `json:"files_artifact"`
 	DBArtifact    string `json:"db_artifact"`
-	Label         string `json:"label,omitempty"`
 	Verified      bool   `json:"verified"`
 	CreatedAt     string `json:"created_at"`
 }
@@ -136,7 +136,8 @@ func (s *server) listBackupsForTenant(ctx context.Context, tenant string) ([]bac
 }
 
 // runScriptCapture runs a script and captures stdout+stderr, returning combined output.
-// The backup dir is mounted so scripts can write/read backup files on the host.
+// Backup and tenant-storage directories are mounted so lifecycle scripts operate
+// on the same host files as the dashboard and Dokku.
 func (s *server) runScriptCapture(ctx context.Context, scriptName string, argv []string) ([]byte, error) {
 	if s.cfg.ScriptsHostPath == "" {
 		return nil, fmt.Errorf("SCRIPTS_HOST_PATH not configured")
@@ -168,15 +169,21 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"%s`, configFlag)
 	if backupDir == "" {
 		backupDir = "/opt/tenant-backups"
 	}
+	storageRoot := s.cfg.StorageRoot
+	if storageRoot == "" {
+		storageRoot = "/opt/tenant-data"
+	}
 
 	full := []string{
 		"run", "--rm", "-i",
 		"-e", "MYSQL_CLIENT_MODE=docker",
 		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
 		"-e", "BACKUP_DIR=" + backupDir,
+		"-e", "STORAGE_ROOT=" + storageRoot,
 		"-v", dockerSocket,
 		"-v", s.cfg.ScriptsHostPath + ":/opt/deployment:ro",
 		"-v", backupDir + ":" + backupDir,
+		"-v", storageRoot + ":" + storageRoot,
 		"--network", "host",
 		s.cfg.RunnerImage,
 		"bash", "-c", bashScript,
@@ -205,7 +212,7 @@ func (s *server) handleTenantBackup(w http.ResponseWriter, r *http.Request) {
 	if len(label) > 120 || strings.IndexFunc(label, func(r rune) bool {
 		return r < 0x20 || r == 0x7f
 	}) >= 0 {
-		http.Error(w, "backup label must be at most 120 printable characters", http.StatusBadRequest)
+		http.Error(w, "backup label must be at most 120 characters and contain no control characters", http.StatusBadRequest)
 		return
 	}
 
@@ -220,7 +227,7 @@ func (s *server) handleTenantBackup(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 
-	argv := []string{tenant, "--origin", "user", "--owner", "dashboard"}
+	argv := []string{tenant, "--origin", "user", "--owner", "dashboard", "--require-verified"}
 	if label != "" {
 		argv = append(argv, "--label", label)
 	}
@@ -311,6 +318,45 @@ func (s *server) handleTenantBackupDownload(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(m.DBArtifact)))
 
 	_, _ = io.Copy(w, f)
+}
+
+// ── POST /tenants/{name}/backups/{id}/verify ─────────────────────────────────
+
+func (s *server) handleTenantBackupVerify(w http.ResponseWriter, r *http.Request) {
+	tenant := chi.URLParam(r, "name")
+	backupID := chi.URLParam(r, "id")
+	if !validAppName(tenant) || !validBackupID(backupID) {
+		http.Error(w, "invalid params", http.StatusBadRequest)
+		return
+	}
+
+	backupDir := s.cfg.BackupDir
+	metaPath := filepath.Join(backupDir, backupID+".meta.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		http.Error(w, "backup not found", http.StatusNotFound)
+		return
+	}
+	var m backupManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		http.Error(w, "invalid backup manifest", http.StatusInternalServerError)
+		return
+	}
+	if m.Tenant != "" && m.Tenant != tenant {
+		http.Error(w, "backup belongs to a different tenant", http.StatusForbidden)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+
+	output, err := s.runScriptCapture(ctx, "manage-backups.sh", []string{"verify", backupID})
+	if err != nil {
+		http.Error(w, "verify failed: "+string(output), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write(output)
 }
 
 // ── POST /tenants/{name}/backups/{id}/delete ─────────────────────────────────

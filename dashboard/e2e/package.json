@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "playwright test",
+    "test:log-retention": "playwright test tests/log-retention.spec.ts"
   },
   "keywords": [],
   "author": "",

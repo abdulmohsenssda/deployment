@@ -150,6 +150,86 @@ tenant_from_app_name() {
     esac
 }
 
+# Resolve and validate the single scheme used by generated public URLs.
+# Dashboard production runners set DASHBOARD_ENV=prod; direct installs can
+# opt into the same behavior with ENABLE_SSL=true or PUBLIC_PROTOCOL=https.
+public_protocol() {
+    local protocol="${PUBLIC_PROTOCOL:-}" env="${DASHBOARD_ENV:-}" ssl="${ENABLE_SSL:-false}"
+    env="${env,,}"
+    ssl="${ssl,,}"
+    if [ -z "$protocol" ]; then
+        case "$env" in
+            prod|production) protocol="https" ;;
+            *) [ "$ssl" = "true" ] && protocol="https" || protocol="http" ;;
+        esac
+    fi
+    protocol="$(printf '%s' "$protocol" | tr '[:upper:]' '[:lower:]')"
+    case "$protocol" in
+        http|https) ;;
+        *)
+            echo "Invalid PUBLIC_PROTOCOL='$protocol'; expected http or https." >&2
+            return 1
+            ;;
+    esac
+    case "$env" in
+        prod|production)
+            if [ "$protocol" != "https" ]; then
+                echo "Production public URLs must use HTTPS." >&2
+                return 1
+            fi
+            ;;
+    esac
+    printf '%s' "$protocol"
+}
+
+is_local_public_host() {
+    local host="${1,,}"
+    case "$host" in
+        ::1|[::1]|::|[::]) return 0 ;;
+    esac
+    host="${host%%:*}"
+    case "$host" in
+        localhost|*.localhost|localtest.me|*.localtest.me|127.*|0.0.0.0)
+            return 0
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+# Build one validated public URL from a hostname. The input deliberately
+# excludes a scheme so callers cannot accidentally mix HTTP and HTTPS links.
+public_url() {
+    local host="$1"
+    local protocol env
+    protocol="$(public_protocol)" || return 1
+    env="${DASHBOARD_ENV:-}"
+    env="${env,,}"
+    if [ -z "$host" ] || [[ "$host" == *"://"* || "$host" == */* || "$host" == *[[:space:]]* ]]; then
+        echo "Invalid public host '$host'." >&2
+        return 1
+    fi
+    if [[ "$env" = "prod" || "$env" = "production" ]] &&
+        is_local_public_host "$host"; then
+        echo "Production public URLs must not target localhost, localtest.me, or a loopback address." >&2
+        return 1
+    fi
+    printf '%s://%s' "$protocol" "$host"
+}
+
+public_tenant_url() {
+    local tenant base_domain env
+    base_domain="${BASE_DOMAIN:?BASE_DOMAIN not set}"
+    env="${DASHBOARD_ENV:-}"
+    env="${env,,}"
+    if [[ "$env" = "prod" || "$env" = "production" ]] &&
+        is_local_public_host "$base_domain"; then
+        echo "Production public URLs must not use a localhost, localtest.me, or loopback BASE_DOMAIN." >&2
+        return 1
+    fi
+    tenant="$(tenant_full_name "$1")" || return 1
+    public_url "${tenant}.${base_domain}"
+}
+
 # MySQL client (supports stdin/heredocs)
 run_mysql() {
     local host
@@ -446,6 +526,7 @@ write_backup_manifest() {
   "timestamp": "$(json_escape "$ts")",
   "origin": "$(json_escape "$origin")",
   "owner": "$(json_escape "$owner")",
+  "label": "$(json_escape "$label")",
   "files_artifact": "$(json_escape "$files_base")",
   "db_artifact": "$(json_escape "$db_base")",
   "label": "$(json_escape "$label")",

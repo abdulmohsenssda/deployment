@@ -23,7 +23,7 @@ frontend repo →  push to dev  ──────────┤       Docker H
                  push to main ────┐     │
                                   ▼     ▼
         myuser/ifritah-api:<tag>  myuser/ifritah-web:<tag>
-                                  │
+                                  │                   │
               │ manual            │ webhook/dev deploy
                                   ▼                   ▼
           deployctl fleet sync   deployctl tenant update
@@ -31,7 +31,8 @@ frontend repo →  push to dev  ──────────┤       Docker H
                               prod tenants       dev tenant
 ```
 
-- **Dev**: a single tenant; webhook deployment can pull the exact `VERSION` tag.
+- **Dev**: a single tenant; the `dev` branch publishes the shared `:dev` tag
+  and webhook deployment can also pull the exact `VERSION` tag.
 - **Prod**: ops runs `deploy-all.sh <image> --tenant <client>` per client when promoting a build.
 - **App repos own**: Dockerfile, docker-compose for local dev, `.env.example`, and the GitHub Actions workflow that builds + pushes the image.
 - **This repo owns**: server provisioning, tenant lifecycle, image polling, manual rollouts, backups, rollbacks.
@@ -124,8 +125,9 @@ The old `scripts/*.sh` files remain as readable implementation units and compati
 
 Every backup is a *set*: a manifest sidecar `<tenant>_<timestamp>.meta.json`
 plus its `.tar.gz` (files) and `.sql.gz` (database) artifacts in `BACKUP_DIR`.
-The manifest records the **origin** and **owner**, and whether the artifacts
-passed integrity verification (`gzip -t`, `tar -tzf`, non-empty dump).
+The manifest records the **origin**, **owner**, optional user **label**, and
+whether the artifacts passed integrity verification (`gzip -t`, `tar -tzf`,
+non-empty dump).
 
 - **User backups** (`--origin user`) are protected: the retention policy never
   deletes them. Only the owner (or an operator with `--force`) can delete one.
@@ -136,8 +138,9 @@ passed integrity verification (`gzip -t`, `tar -tzf`, non-empty dump).
   deploy is skipped and retried next cycle. Opt out with
   `AUTO_BACKUP_BEFORE_REDEPLOY=0` (not recommended).
 - **Auto-redeploy can be disabled per environment/tenant** by listing tenant
-  names in `AUTO_REDEPLOY_DISABLED` (the allow-listed equivalent of the
-  dashboard per-environment "disable auto-redeploy" checkbox).
+  names in `AUTO_REDEPLOY_DISABLED` or by unchecking the dashboard toggle.
+  The dashboard writes `${TENANT_STATE_DIR:-/opt/tenant-state}/<tenant>.json`;
+  this directory must be shared with the host poller.
 - **Restore/rollback to any version** with `tenant restore <name> --from <id>`.
   It refuses corrupt backups and, by default, takes a fresh verified safety
   backup of the current state first so the restore itself is reversible.
@@ -169,14 +172,24 @@ Each app repo also ships a **PR branch-image workflow**
 same-repository pull request it builds and pushes two tags to the configured
 Docker Hub repo:
 
-- `:<branch-name>` — a safe, branch-derived mutable tag (always the latest
+- `:pr-<branch-name>` — a safe, branch-derived mutable tag (always the latest
   build for that branch), and
-- `:<branch-name>-<shortsha>` — an immutable per-commit reference.
+- `:pr-<branch-name>-<shortsha>` — an immutable per-commit reference.
 
 The dashboard's searchable image selector lists these tags straight from Docker
 Hub for the configured account, showing only tags present in **both** the
 backend and frontend repos so a branch build is only offered when both apps
 have a matching image.
+
+The regular deploy workflow also publishes the mutable `:dev` alias whenever
+the source branch is `dev`, alongside the immutable commit-SHA tag. This keeps
+the poller and dashboard's default development selection aligned across both
+app repositories.
+
+Dashboard images embed a non-secret build version and commit identity. The
+published image exposes it through `/version`, the dashboard footer, and
+`/healthz` response headers; its embedded web-bundle digest covers templates and
+static assets so mixed UI bundles can be detected before publication.
 
 ## GitHub secrets to set in each app repo
 

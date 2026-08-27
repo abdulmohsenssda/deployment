@@ -19,6 +19,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 )
 
 // Field describes one input on a script's form.
@@ -35,6 +37,7 @@ type Field struct {
 	Suggest     []string // optional datalist values rendered next to the input for auto-suggest
 	Secret      bool     // when true, value is masked in the echoed command line and excluded from auto-fill persistence
 	Default     string   // default value pre-filled into the input on render (and used as the hidden value)
+	ImageScope  string   // image tag compatibility scope: "both", "backend", "frontend", or "role"
 }
 
 // ImageVersion describes one compatible backend/frontend image pair. The tag is
@@ -95,11 +98,9 @@ func DefaultImageVersion() string {
 	if v := strings.TrimSpace(os.Getenv("APP_IMAGE_VERSION_DEFAULT")); v != "" {
 		return v
 	}
-	// Branch-only automation: the create/sync forms take a free-text Docker tag
-	// (dev, latest, a branch name or a semver). The rolling "dev" image is the
-	// sensible default. A placeholder semver release catalog (e.g. the bundled
-	// v0.0.1 entry) must NOT hijack this default — only an explicit
-	// APP_IMAGE_VERSION_DEFAULT should pin the forms to a specific release.
+	// The rolling dev tag is the only safe default when the release catalog
+	// does not carry repository coverage metadata. The web layer still
+	// replaces it with the newest compatible tag when metadata is available.
 	return "dev"
 }
 
@@ -117,6 +118,19 @@ func ResolveImageVersion(tag string) (ImageVersion, bool) {
 }
 
 func imageVersionField(required bool) Field {
+	return imageVersionFieldForScope(required, "both")
+}
+
+func imageVersionFieldForScope(required bool, scope string) Field {
+	help := "Tag applied to both BACKEND_IMAGE and FRONTEND_IMAGE. Type to search available tags from Docker Hub."
+	switch scope {
+	case "backend":
+		help = "Tag applied to the backend image. Branch and PR tags are supported."
+	case "frontend":
+		help = "Tag applied to the frontend image. Branch and PR tags are supported."
+	case "role":
+		help = "Tag applied to the selected app type. Branch and PR tags are supported."
+	}
 	return Field{
 		Name:        "image_version",
 		Label:       "Image tag",
@@ -125,7 +139,8 @@ func imageVersionField(required bool) Field {
 		Placeholder: "e.g. dev, v1.2.3, or feature-my-branch",
 		Suggest:     []string{}, // populated client-side from /api/image-tags via datalist
 		Default:     DefaultImageVersion(),
-		Help:        "Tag applied to both BACKEND_IMAGE and FRONTEND_IMAGE. Type to search available tags from Docker Hub.",
+		ImageScope:  scope,
+		Help:        help,
 	}
 }
 
@@ -225,13 +240,134 @@ func (s Script) ControlCommand() string {
 	}
 }
 
-// Group returns the operation group used by command-center templates.
-func (s Script) Group() string {
-	cmd := s.ControlCommand()
-	if before, _, ok := strings.Cut(cmd, " "); ok {
-		return before
+const (
+	commandGroupReadOnlyStatus  = "read-only-status"
+	commandGroupDeployment      = "deployment-lifecycle"
+	commandGroupBackupRestore   = "backup-restore"
+	commandGroupCleanupDeletion = "cleanup-deletion"
+)
+
+// CommandGroup is a scan-friendly section of the command index.
+type CommandGroup struct {
+	ID          string
+	Title       string
+	Description string
+	Scripts     []Script
+}
+
+// GroupID returns the stable command-index group identifier for a script.
+func (s Script) GroupID() string {
+	switch s.Slug() {
+	case "status", "list-tenants", "tail-logs", "verify-mysql",
+		"discover-dokku-nginx", "watch-dokku-traffic":
+		return commandGroupReadOnlyStatus
+	case "backup-tenant", "manage-backups", "restore-tenant":
+		return commandGroupBackupRestore
+	case "remove-tenant", "cleanup-broken-tenant", "cleanup-old-files":
+		return commandGroupCleanupDeletion
+	default:
+		return commandGroupDeployment
 	}
-	return cmd
+}
+
+// Group returns the human-readable operation group used by command-index
+// templates and other callers that render an individual script.
+func (s Script) Group() string {
+	for _, group := range commandGroupDefinitions() {
+		if group.ID == s.GroupID() {
+			return group.Title
+		}
+	}
+	return "Deployment / lifecycle"
+}
+
+// ImpactClass returns the CSS/data classification used to signal command
+// impact before an operator opens the command.
+func (s Script) ImpactClass() string {
+	switch s.Slug() {
+	case "status", "list-tenants", "tail-logs", "verify-mysql",
+		"discover-dokku-nginx", "watch-dokku-traffic":
+		return "read-only"
+	case "remove-tenant", "cleanup-broken-tenant", "cleanup-old-files", "restore-tenant":
+		return "destructive"
+	default:
+		if s.Danger {
+			return "high-impact"
+		}
+		return "state-changing"
+	}
+}
+
+// ImpactLabel returns the short, visible impact cue shown on command cards.
+func (s Script) ImpactLabel() string {
+	switch s.ImpactClass() {
+	case "read-only":
+		return "Read-only"
+	case "destructive":
+		return "Destructive"
+	case "high-impact":
+		return "High impact"
+	default:
+		return "Changes state"
+	}
+}
+
+// ImpactDescription returns the longer impact cue used for accessibility and
+// hover text in the command index.
+func (s Script) ImpactDescription() string {
+	switch s.ImpactClass() {
+	case "read-only":
+		return "Read-only; does not change tenant state."
+	case "destructive":
+		return "May overwrite or delete tenant data; confirmation is required."
+	case "high-impact":
+		return "Changes live deployment state; confirmation is required."
+	default:
+		return "Changes deployment or stored state."
+	}
+}
+
+func commandGroupDefinitions() []CommandGroup {
+	return []CommandGroup{
+		{
+			ID:          commandGroupReadOnlyStatus,
+			Title:       "Read-only / status",
+			Description: "Inspect tenant health, logs, connectivity, and routing without changing workloads.",
+		},
+		{
+			ID:          commandGroupDeployment,
+			Title:       "Deployment / lifecycle",
+			Description: "Provision tenants, roll out images, tune services, and run platform setup.",
+		},
+		{
+			ID:          commandGroupBackupRestore,
+			Title:       "Backup / restore",
+			Description: "Protect, inspect, and recover tenant data. Restore can replace the current state.",
+		},
+		{
+			ID:          commandGroupCleanupDeletion,
+			Title:       "Cleanup / deletion",
+			Description: "Remove tenants or retired files. Destructive commands require extra review.",
+		},
+	}
+}
+
+// CommandGroups returns the complete catalog arranged in the command index's
+// stable, risk-aware section order. Every catalog entry appears exactly once.
+func CommandGroups() []CommandGroup {
+	groups := commandGroupDefinitions()
+	index := make(map[string]int, len(groups))
+	for i := range groups {
+		index[groups[i].ID] = i
+	}
+	for _, script := range Catalog() {
+		i, ok := index[script.GroupID()]
+		if !ok {
+			i = index[commandGroupDeployment]
+		}
+		groups[i].Scripts = append(groups[i].Scripts, script)
+	}
+	return groups
 }
 
 // Catalog returns the curated list of deployctl-backed operations the dashboard exposes.
@@ -291,7 +427,7 @@ func Catalog() []Script {
 			Danger:  true,
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Required: true, Placeholder: "acme"},
-				imageVersionField(true),
+				imageVersionFieldForScope(true, "backend"),
 				{Name: "backend_image", Flag: "--backend-image", Type: "hidden"},
 				{Name: "admin_user", Label: "Admin username", Flag: "--env", Type: "text", Placeholder: "admin",
 					Default: "admin", Suggest: []string{"admin"}},
@@ -338,9 +474,9 @@ func Catalog() []Script {
 			Summary: "Roll one versioned backend or frontend image to all tenants (canary-first), or a single tenant.",
 			Danger:  true,
 			Fields: []Field{
-				imageVersionField(true),
+				imageVersionFieldForScope(true, "role"),
 				{Name: "_pos_image", Type: "hidden"},
-				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
+				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}, Default: "backend"},
 				{Name: "tenant", Label: "Single tenant", Flag: "--tenant", Type: "text"},
 				{Name: "skip_canary", Label: "Skip canary", Flag: "--skip-canary", Type: "checkbox", Boolean: true},
 			},
@@ -350,8 +486,8 @@ func Catalog() []Script {
 			Summary: "Roll a tenant back to a previous image.", Danger: true,
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Required: true},
-				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}},
-				imageVersionField(false),
+				{Name: "type", Label: "App type", Flag: "--type", Type: "select", Options: []string{"backend", "frontend"}, Default: "backend"},
+				imageVersionFieldForScope(false, "role"),
 				{Name: "to", Flag: "--to", Type: "hidden"},
 				{Name: "list", Label: "List recent deploys", Flag: "--list", Type: "checkbox", Boolean: true},
 			},
@@ -361,7 +497,9 @@ func Catalog() []Script {
 			Summary: "Pin (or unpin) a tenant to a specific image.",
 			Fields: []Field{
 				{Name: "_pos_name", Label: "Tenant name", Type: "text", Placeholder: "(omit with --list)"},
-				imageVersionField(false),
+				{Name: "type", Label: "App type", Type: "select", Options: []string{"both", "backend", "frontend"}, Default: "both",
+					Help: "Choose both only when the tag is published in both repositories."},
+				imageVersionFieldForScope(false, "role"),
 				{Name: "backend", Flag: "--backend", Type: "hidden"},
 				{Name: "frontend", Flag: "--frontend", Type: "hidden"},
 				{Name: "unpin", Label: "Unpin", Flag: "--unpin", Type: "checkbox", Boolean: true},
@@ -466,7 +604,9 @@ func Catalog() []Script {
 			Name: "setup-dev-tenant.sh", Title: "Setup dev tenant", Summary: "Idempotently create the dev tenant.",
 			Fields: []Field{
 				{Name: "name", Label: "Tenant name", Flag: "--name", Type: "text"},
-				{Name: "tag", Label: "Image tag", Flag: "--tag", Type: "text"},
+				{Name: "tag", Label: "Image tag", Flag: "--tag", Type: "text", Default: DefaultImageVersion(),
+					ImageScope: "role",
+					Help:       "The backend tag; enable the frontend option only when the same tag exists in both repositories."},
 				{Name: "frontend", Label: "Pin frontend too", Flag: "--frontend", Type: "checkbox", Boolean: true},
 			},
 		},
@@ -498,7 +638,7 @@ type Runner struct {
 	scriptsHostPath string // host path to /opt/deployment (mounted into runner)
 	configFile      string // optional --config path inside runner
 	backupDir       string // host path to backup dir (mounted rw so scripts can write)
-	storageRoot     string // host path to tenant persistent files (mounted rw for backups)
+	storageRoot     string // host path to persistent tenant files (mounted rw)
 }
 
 // NewRunner builds a runner. scriptsHostPath is the path on the docker
@@ -521,11 +661,41 @@ func (r *Runner) SetBackupDir(dir string) {
 	r.backupDir = dir
 }
 
-// SetStorageRoot configures the host path for tenant persistent files.
-// The directory is mounted into runner containers so backup scripts include
-// the same files visible to the dashboard deployment.
+// SetStorageRoot configures the host path for persistent tenant files.
+// The directory is mounted into runner containers so create, backup, restore,
+// and cleanup scripts operate on the same files as Dokku.
 func (r *Runner) SetStorageRoot(dir string) {
 	r.storageRoot = dir
+}
+
+func (r *Runner) volumeArgs() []string {
+	var args []string
+	if r.backupDir != "" {
+		args = append(args, "-v", r.backupDir+":"+r.backupDir)
+		args = append(args, "-e", "BACKUP_DIR="+r.backupDir)
+	}
+	if r.storageRoot != "" {
+		args = append(args, "-v", r.storageRoot+":"+r.storageRoot)
+		args = append(args, "-e", "STORAGE_ROOT="+r.storageRoot)
+	}
+	return args
+}
+
+func (r *Runner) dockerArgs(dockerSocket string) []string {
+	full := []string{
+		"run", "--rm", "-i",
+		"-e", "MYSQL_CLIENT_MODE=docker",
+		"-e", "BASE_DOMAIN=" + os.Getenv("BASE_DOMAIN"),
+		"-e", "PUBLIC_PROTOCOL=" + os.Getenv("PUBLIC_PROTOCOL"),
+		"-e", "ENABLE_SSL=" + os.Getenv("ENABLE_SSL"),
+		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
+		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
+		"-v", dockerSocket,
+		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
+		"--network", "host",
+	}
+	return append(full, r.volumeArgs()...)
 }
 
 // safeArg only allows characters that cannot escape an argv slot. We split on
@@ -547,7 +717,7 @@ func validateArgs(argv []string) error {
 }
 
 // Run executes a script with already-built argv (extra flags after the script
-// name). Output is streamed to w line-by-line as SSE `data:` frames.
+// name). Sanitized output is streamed to w line-by-line as SSE `data:` frames.
 func (r *Runner) Run(ctx context.Context, w io.Writer, scriptName string, argv []string) error {
 	return r.RunWithCallback(ctx, w, scriptName, argv, nil)
 }
@@ -616,7 +786,7 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := stripAnsi(scanner.Text())
+		line := ansi.Strip(scanner.Text())
 		if onLine != nil {
 			onLine(line)
 		}
@@ -631,29 +801,4 @@ exec bash "scripts/deployctl.sh" "script" "$NAME" "$@"
 	return cmd.Wait()
 }
 
-func (r *Runner) dockerArgs(dockerSocket string) []string {
-	full := []string{
-		"run", "--rm", "-i",
-		"-e", "MYSQL_CLIENT_MODE=docker",
-		"-e", "TENANT_NAME_PREFIX=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "TENANT_NAME_PREFIX_OVERRIDE=" + os.Getenv("TENANT_NAME_PREFIX"),
-		"-e", "DASHBOARD_ENV=" + os.Getenv("DASHBOARD_ENV"),
-		"-v", dockerSocket,
-		"-v", r.scriptsHostPath + ":/opt/deployment:ro",
-		"--network", "host",
-	}
-	// Mount the backup dir so backup scripts can write to the host filesystem
-	if r.backupDir != "" {
-		full = append(full, "-v", r.backupDir+":"+r.backupDir)
-		full = append(full, "-e", "BACKUP_DIR="+r.backupDir)
-	}
-	if r.storageRoot != "" {
-		full = append(full, "-v", r.storageRoot+":"+r.storageRoot)
-		full = append(full, "-e", "STORAGE_ROOT="+r.storageRoot)
-	}
-	return full
-}
-
-var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-
-func stripAnsi(s string) string { return ansi.ReplaceAllString(strings.ReplaceAll(s, "\r", ""), "") }
+func stripAnsi(s string) string { return ansi.Strip(s) }

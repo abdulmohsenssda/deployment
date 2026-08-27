@@ -62,6 +62,7 @@ fi
 
 SUFFIX="-${APP_TYPE}"
 BASE_DOMAIN="${BASE_DOMAIN:-app.example.com}"
+public_protocol >/dev/null || exit 1
 MYSQL_MASTER_DB="${MYSQL_MASTER_DB:-zatca_master}"
 MIGRATE_CMD="${MIGRATE_CMD:-}"
 IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY:-always}"
@@ -199,7 +200,7 @@ fi
 
 if ! $SKIP_CANARY && [ -n "$REST" ]; then
     TENANT="${FIRST%-${APP_TYPE}}"
-    HEALTH_URL="https://${TENANT}.${BASE_DOMAIN}"
+    HEALTH_URL="$(public_tenant_url "$TENANT")"
     if [ "$APP_TYPE" = "backend" ]; then
         HEALTH_URL="${HEALTH_URL}/api/health"
     fi

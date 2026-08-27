@@ -56,15 +56,17 @@
         <input type="password" name="{{.Name}}" placeholder="{{.Placeholder}}"
           autocomplete="new-password" {{if .Required}}required{{end}} class="form-input">
       {{else}}
-        {{if eq .Name "image_version"}}
+        {{if or (eq .Name "image_version") .ImageScope}}
         <div style="position:relative">
           <input type="text" name="{{.Name}}" placeholder="{{.Placeholder}}"
-            value="{{.Default}}" autocomplete="off"
+            value="{{if .ImageScope}}{{$.DefaultVersion}}{{else}}{{.Default}}{{end}}" autocomplete="off"
             id="input-{{.Name}}" data-tag-search
+            {{if .ImageScope}}data-image-scope="{{.ImageScope}}"{{end}}
             {{if .Required}}required{{end}} class="form-input">
           <datalist id="dl-{{.Name}}">
             {{range .Suggest}}<option value="{{.}}">{{end}}
           </datalist>
+          <p data-image-compatibility class="field-help image-compatibility" hidden></p>
         </div>
         {{else}}
         <input type="text" name="{{.Name}}" placeholder="{{.Placeholder}}"
@@ -80,28 +82,115 @@
     </div>
     {{end}}
     {{end}}
-    <div class="form-footer">
-      <button class="btn btn-primary">▶ Run</button>
-      <button type="button" id="clear-out" class="btn btn-secondary">Clear output</button>
+    <div id="run-controls" class="form-footer">
+      <button type="submit" class="btn btn-primary" aria-controls="out" aria-busy="false">▶ Run</button>
+      <button type="button" id="clear-out" class="btn btn-secondary" aria-controls="out">Clear output</button>
       {{if .Danger}}<span class="danger-note">Confirmation will be requested before execution.</span>{{end}}
     </div>
   </form>
 </div>
 
-<div class="panel">
-  <div class="panel-title">Output</div>
-  <div id="out" class="terminal"></div>
+<div id="command-output" class="panel operation-panel" data-state="idle" data-operation-state="idle" aria-busy="false">
+  <div class="panel-toolbar operation-toolbar">
+    <span id="command-output-title" class="panel-title">Output</span>
+    <span id="out-status" class="operation-status operation-status-idle" data-operation-status="idle">Idle</span>
+  </div>
+  <div id="out-status-detail" class="operation-detail" data-operation-detail role="status" aria-live="polite">
+    Ready — run this command to see output.
+  </div>
+  <div id="out" class="terminal" role="log" aria-live="polite" aria-atomic="false"
+       aria-relevant="additions" aria-busy="false" aria-labelledby="command-output-title" tabindex="0">
+    <div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>
+  </div>
 </div>
+<div id="run-status" class="alert" role="status" aria-live="polite" hidden></div>
 
+<script src="/static/command-run.js"></script>
 <script>
 (function () {
   const form = document.getElementById('run-form');
   const out = document.getElementById('out');
-  document.getElementById('clear-out').onclick = () => out.innerHTML = '';
+  const status = document.getElementById('run-status');
+  const runControls = document.getElementById('run-controls');
+  const runButtons = runControls ? runControls.querySelectorAll('button') : [];
+  let runInProgress = false;
+
+  function setRunControlsBusy(busy) {
+    form.setAttribute('aria-busy', String(busy));
+    if (runControls) {
+      runControls.setAttribute('aria-busy', String(busy));
+      runControls.setAttribute('aria-disabled', String(busy));
+    }
+    runButtons.forEach(button => {
+      button.disabled = busy;
+      button.setAttribute('aria-busy', String(busy));
+    });
+  }
   const danger = {{.Danger}};
   const slug = '{{.Slug}}';
   const STORE_KEY = 'script-form:' + slug;
+  const outputPanel = document.getElementById('command-output');
+  const outputStore = window.DashboardOperation.createStore('dashboard:script-output:' + slug);
   const releases = {{json $.Releases}};
+  let outputLines = [];
+  let outputState = 'idle';
+  let activityDirty = false;
+
+  function emptyMarkup() {
+    return '<div id="out-empty" class="terminal-empty">No command output yet. Run this command to see results.</div>';
+  }
+
+  function persistOutput() {
+    outputStore.save(outputLines, outputState);
+  }
+
+  function setOutputState(state, detail) {
+    outputState = window.DashboardOperation.setState(outputPanel, state, detail);
+    persistOutput();
+  }
+
+  function appendLine(line, persist = true, announce = true) {
+    const value = window.stripTerminalControls(String(line));
+    outputLines.push(value);
+    outputLines = outputLines.slice(-window.DashboardOperation.maxEntries);
+    out.querySelector('.terminal-empty')?.remove();
+    const lineEl = document.createElement('span');
+    lineEl.className = 'terminal-line';
+    lineEl.innerHTML = linkifyLine(value);
+    if (!announce) lineEl.setAttribute('aria-hidden', 'true');
+    out.append(lineEl, document.createTextNode('\n'));
+    if (persist) persistOutput();
+  }
+
+  function clearOutput() {
+    outputLines = [];
+    out.innerHTML = emptyMarkup();
+    outputStore.clear();
+    setOutputState('idle', 'Ready — run this command to see output.');
+  }
+
+  function restoreOutput() {
+    const saved = outputStore.load();
+    outputLines = saved.entries.slice(-window.DashboardOperation.maxEntries);
+    out.innerHTML = '';
+    outputLines.forEach(line => appendLine(line, false));
+    if (outputLines.length === 0) out.innerHTML = emptyMarkup();
+    const recovered = window.DashboardOperation.recoveredState(outputState = saved.state, outputLines.length > 0);
+    const detail = saved.state === 'running'
+      ? 'Previous run did not finish; review the saved output.'
+      : undefined;
+    setOutputState(recovered, detail);
+  }
+
+  document.getElementById('clear-out').onclick = clearOutput;
+
+  function setStatus(message, kind) {
+    if (!status) return;
+    status.hidden = !message;
+    status.textContent = message;
+    status.className = 'alert ' + (kind === 'failure' ? 'badge-danger' :
+      kind === 'success' ? 'badge-success' : 'alert-warn');
+  }
 
   function restoreSaved() {
     let saved = {};
@@ -139,23 +228,6 @@
   }
   applyQueryPrefill();
 
-  // Populate image_version datalist from Docker Hub live tags
-  const imgDl = document.getElementById('dl-image_version');
-  if (imgDl) {
-    fetch('/api/image-tags')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data?.tags?.length) return;
-        imgDl.innerHTML = '';
-        data.tags.forEach(t => {
-          const o = document.createElement('option');
-          o.value = t;
-          imgDl.appendChild(o);
-        });
-      })
-      .catch(() => {});
-  }
-
   function selectedRelease() {
     const select = form.elements.image_version;
     if (!select || !select.value) return null;
@@ -188,57 +260,86 @@
       `<a href="${u}" target="_blank" rel="noopener" class="log-link">${u}</a>`);
   }
 
-  function appendLine(line) {
-    out.insertAdjacentHTML('beforeend', linkifyLine(line) + '<br>');
-  }
+  restoreOutput();
 
-  let activityDirty = false;
   fetch('/api/scripts/{{.Slug}}/activity')
-    .then(r => r.ok ? r.json() : null)
+    .then(response => response.ok ? response.json() : null)
     .then(data => {
-      if (!data) return;
+      if (!data || activityDirty || outputLines.length > 0) return;
       const entries = data.entries || [];
-      if (activityDirty) return;
-      out.textContent = '';
       entries.forEach(entry => {
         const at = entry.at ? String(entry.at).replace('T', ' ').replace(/\.\d+Z$/, 'Z') + ' ' : '';
-        appendLine(at + (entry.line || ''));
+        appendLine(at + (entry.line || ''), false, false);
       });
+      if (entries.length > 0) {
+        setOutputState('success', 'Loaded saved command activity.');
+      }
       out.scrollTop = out.scrollHeight;
     })
     .catch(() => {});
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    if (danger && !confirm('This script may modify or delete data. Continue?')) return;
-    const release = selectedRelease();
-    if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
-    persistOnSubmit();
-    const fd = new FormData(form);
-    activityDirty = true;
-    appendLine('');
-    appendLine('--- run ' + new Date().toISOString() + ' ---');
-    const res = await fetch('/scripts/{{.Slug}}/run', { method: 'POST', body: new URLSearchParams(fd) });
-    if (!res.ok) { appendLine('✖ ' + res.status + ' ' + await res.text()); return; }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '', linePrefix = '';
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const block = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const ln of block.split('\n')) {
-          if (ln.startsWith('data: ')) { appendLine(linePrefix + ln.slice(6)); linePrefix = ''; }
-          else if (ln.startsWith('event: error')) linePrefix = '✖ ';
-          else if (ln.startsWith('event: done')) appendLine('');
-        }
-        out.scrollTop = out.scrollHeight;
+  async function runCommand() {
+    if (runInProgress) return;
+    runInProgress = true;
+    setRunControlsBusy(true);
+    try {
+      if (danger && !confirm('This script may modify or delete data. Continue?')) return;
+      const release = selectedRelease();
+      if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
+
+      persistOnSubmit();
+      const fd = new FormData(form);
+      activityDirty = true;
+      setOutputState('running', 'Running — streaming command output…');
+      appendLine('', true, false);
+      appendLine('--- run ' + new Date().toISOString() + ' ---', true, false);
+      setStatus('Running command…', 'running');
+
+      let streamError = '';
+      const result = await window.commandRun.execute('/scripts/{{.Slug}}/run', {
+        method: 'POST',
+        body: new URLSearchParams(fd),
+      }, {
+        onEvent: event => {
+          if (event.type === 'error') {
+            streamError = event.data || 'The command reported a failure.';
+            appendLine('✖ ' + streamError);
+          } else if (event.type === 'done') {
+            appendLine('');
+          } else if (event.data) {
+            appendLine(event.data);
+          }
+          out.scrollTop = out.scrollHeight;
+        },
+      });
+
+      if (result.failed) {
+        const message = result.error || streamError || 'The command reported a failure.';
+        setOutputState('failure', 'Failed — ' + message);
+        setStatus('Command failed: ' + message, 'failure');
+      } else {
+        setOutputState('success', 'Success — command completed.');
+        setStatus('Command completed.', 'success');
       }
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Command failed unexpectedly. Please try again.';
+      appendLine('✖ ' + message);
+      setOutputState('failure', 'Failed — ' + message);
+      setStatus(message, 'failure');
+    } finally {
+      setRunControlsBusy(false);
+      runInProgress = false;
     }
+  }
+
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const imageInput = form.querySelector('[data-tag-search]');
+    if (imageInput && !imageInput.checkValidity()) {
+      imageInput.reportValidity();
+      return;
+    }
+    void runCommand();
   });
 })();
 </script>

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abdul-mohsen/deployment/dashboard/internal/ansi"
 )
 
 // Entry is a single buffered log line with its capture timestamp.
@@ -72,6 +74,7 @@ func newStore(capPerKey int, dir string) *Store {
 // Append records a line for key. Safe for concurrent use. If the store is
 // persistent, the returned error means the line could not be written to disk.
 func (s *Store) Append(key, line string) error {
+	line = ansi.Strip(line)
 	entry := Entry{At: time.Now().UTC(), Line: line}
 	s.mu.Lock()
 	defer s.mu.Unlock()
