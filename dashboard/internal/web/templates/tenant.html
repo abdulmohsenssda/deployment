@@ -143,13 +143,17 @@
       <div id="cred-admin-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
+      <label for="cred-admin-pass" class="field-label">New admin password</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="cred-admin-pass" type="password" placeholder="New password (min 8 chars)"
+        <input id="cred-admin-pass" name="admin_password" type="password" placeholder="New password (min 8 chars)"
+          autocomplete="new-password" minlength="8" required
+          aria-describedby="cred-admin-pass-help cred-admin-msg"
           aria-label="New admin password"
           class="form-input" style="flex:1;min-width:160px">
-        <button id="cred-admin-btn" data-role="admin" class="btn btn-primary" style="flex-shrink:0">Change</button>
+        <button type="button" id="cred-admin-btn" data-role="admin" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
-      <div id="cred-admin-msg" style="font-size:11px;margin-top:4px;height:14px"></div>
+      <p id="cred-admin-pass-help" class="field-help">Minimum 8 characters. Updates the tenant admin account.</p>
+      <div id="cred-admin-msg" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px;margin-top:4px;height:14px"></div>
     </div>
     <!-- Manager -->
     <div>
@@ -157,13 +161,17 @@
       <div id="cred-manager-user" aria-busy="true" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px">
         Loading…
       </div>
+      <label for="cred-manager-pass" class="field-label">New manager password</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <input id="cred-manager-pass" type="password" placeholder="New password (min 8 chars)"
+        <input id="cred-manager-pass" name="manager_password" type="password" placeholder="New password (min 8 chars)"
+          autocomplete="new-password" minlength="8" required
+          aria-describedby="cred-manager-pass-help cred-manager-msg"
           aria-label="New manager password"
           class="form-input" style="flex:1;min-width:160px">
-        <button id="cred-manager-btn" data-role="manager" class="btn btn-primary" style="flex-shrink:0">Change</button>
+        <button type="button" id="cred-manager-btn" data-role="manager" class="btn btn-primary" style="flex-shrink:0">Change</button>
       </div>
-      <div id="cred-manager-msg" style="font-size:11px;margin-top:4px;height:14px"></div>
+      <p id="cred-manager-pass-help" class="field-help">Minimum 8 characters. Updates the tenant manager account.</p>
+      <div id="cred-manager-msg" role="status" aria-live="polite" aria-atomic="true" style="font-size:11px;margin-top:4px;height:14px"></div>
     </div>
   </div>
 </div>
