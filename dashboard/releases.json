@@ -8,5 +8,19 @@
       "Starting release. Backend and frontend must both publish images with the v0.0.1 tag.",
       "Keep this release only until the first feature or bug-fix release increments VERSION."
     ]
+  },
+  {
+    "tag": "v0.0.2",
+    "date": "",
+    "status": "ready",
+    "title": "Add-product free text + purchase-bill save-gate visibility + duplicate-check fail-open",
+    "notes": [
+      "Frontend (go_ifritah#72): Add Product form uses a plain free-text part name input instead of the OEM lookup widget that silently rejected free-form entries.",
+      "Frontend (go_ifritah#72): Purchase-bill Save now renders a visible error when the required PDF is missing, and scrolls it into view; adds a persistent 'PDF required' hint under the upload slot on tenants where pb_pdf_required=required.",
+      "Frontend (go_ifritah#72): duplicate-check proxy now fails open on backend 404 so mismatched image versions no longer produce a scary 'تعذر التحقق من التكرار' banner.",
+      "Backend (ifritah-go#69): AddQuantity accepts a free-form 'name' field in addition to 'product_id'.",
+      "Backend (ifritah-go#70): deploy workflow publishes :dev alias so dev tenants can track dev builds without colliding with :vX.Y.Z pushes from main.",
+      "Deployment: update-tenant.sh preflights backend/frontend org.opencontainers.image.version labels and refuses to deploy a mismatched pair (--skip-drift-check to override)."
+    ]
   }
 ]

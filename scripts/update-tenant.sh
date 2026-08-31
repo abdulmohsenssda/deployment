@@ -11,6 +11,10 @@
 #   --env KEY=VALUE            Set/update env var (repeatable)
 #   --restart                  Restart all tenant containers
 #   --scale <n>                Scale backend to n instances
+#   --skip-drift-check         Deploy even if backend + frontend image
+#                              versions (org.opencontainers.image.version)
+#                              disagree. Use only when knowingly running a
+#                              mismatched pair (e.g. targeted rollback).
 #   --config <path>            Path to config.env file (default: ../config.env)
 # =============================================================================
 
@@ -46,6 +50,7 @@ BACKEND_IMAGE=""
 FRONTEND_IMAGE=""
 RESTART=false
 SCALE=""
+SKIP_DRIFT_CHECK=false
 declare -a ENV_VARS=()
 
 ensure_update_image_available() {
@@ -83,16 +88,71 @@ image_tag() {
     fi
 }
 
+# Read the org.opencontainers.image.version label from an image ref.
+# Empty string on failure (missing label, missing image, docker error).
+# Callers must have already pulled the image via ensure_update_image_available.
+image_version_label() {
+    local image="$1"
+    docker inspect --format='{{index .Config.Labels "org.opencontainers.image.version"}}' "$image" 2>/dev/null | tr -d '\r\n' || true
+}
+
+# Refuse to deploy a backend + frontend pair whose image versions disagree.
+# The pair is only compared when both sides are being updated in the same
+# invocation — pinning just one image is still allowed.
+#
+# Bypass with --skip-drift-check when knowingly running mismatched images
+# (rare; usually only needed during a rollback investigation).
+assert_image_versions_match() {
+    if [ -z "$BACKEND_IMAGE" ] || [ -z "$FRONTEND_IMAGE" ]; then
+        return 0
+    fi
+    if [ "$SKIP_DRIFT_CHECK" = "true" ]; then
+        warn "Skipping backend/frontend image-version drift check (--skip-drift-check)"
+        return 0
+    fi
+
+    local backend_ver frontend_ver
+    backend_ver="$(image_version_label "$BACKEND_IMAGE")"
+    frontend_ver="$(image_version_label "$FRONTEND_IMAGE")"
+
+    # If either image doesn't carry a version label, warn and continue —
+    # this covers older images built before the label was added, or ad-hoc
+    # locally-built images used during development.
+    if [ -z "$backend_ver" ] || [ -z "$frontend_ver" ]; then
+        warn "One or both images have no org.opencontainers.image.version label:"
+        warn "  backend  ${BACKEND_IMAGE}  version='${backend_ver:-<none>}'"
+        warn "  frontend ${FRONTEND_IMAGE} version='${frontend_ver:-<none>}'"
+        warn "Cannot confirm drift-free pair. Continuing anyway; pass --skip-drift-check"
+        warn "to silence this warning permanently."
+        return 0
+    fi
+
+    if [ "$backend_ver" != "$frontend_ver" ]; then
+        error "Refusing to deploy: backend/frontend version drift detected."
+        error "  backend  ${BACKEND_IMAGE}  version=${backend_ver}"
+        error "  frontend ${FRONTEND_IMAGE} version=${frontend_ver}"
+        error ""
+        error "Rebuild both apps from a commit that shares the same VERSION file,"
+        error "or override with --skip-drift-check if you know what you're doing"
+        error "(e.g. a rollback investigation against a known-good backend and a"
+        error "specific frontend build)."
+        exit 1
+    fi
+
+    log "Image versions match: ${backend_ver} (backend + frontend)"
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --backend-image)  BACKEND_IMAGE="$2"; shift 2 ;;
-        --frontend-image) FRONTEND_IMAGE="$2"; shift 2 ;;
-        --env)            ENV_VARS+=("$2"); shift 2 ;;
-        --restart)        RESTART=true; shift ;;
-        --scale)          SCALE="$2"; shift 2 ;;
-        --config)         shift 2 ;;  # already parsed above
-        -*)               error "Unknown option: $1"; exit 1 ;;
-        *)                [ -z "$TENANT_NAME" ] && TENANT_NAME="$1"; shift ;;
+        --backend-image)     BACKEND_IMAGE="$2"; shift 2 ;;
+        --frontend-image)    FRONTEND_IMAGE="$2"; shift 2 ;;
+        --env)               ENV_VARS+=("$2"); shift 2 ;;
+        --restart)           RESTART=true; shift ;;
+        --scale)             SCALE="$2"; shift 2 ;;
+        --skip-drift-check)  SKIP_DRIFT_CHECK=true; shift ;;
+        --config)            shift 2 ;;  # already parsed above
+        -*)                  error "Unknown option: $1"; exit 1 ;;
+        *)                   [ -z "$TENANT_NAME" ] && TENANT_NAME="$1"; shift ;;
     esac
 done
 
@@ -115,9 +175,19 @@ for ev in "${ENV_VARS[@]+"${ENV_VARS[@]}"}"; do
 done
 
 # ---- Deploy new images ----
+# Pull each image first so image_version_label can inspect the manifest, then
+# run the drift preflight before any dokku config:set actually mutates state.
+if [ -n "$BACKEND_IMAGE" ]; then
+    ensure_update_image_available "$BACKEND_IMAGE"
+fi
+if [ -n "$FRONTEND_IMAGE" ]; then
+    ensure_update_image_available "$FRONTEND_IMAGE"
+fi
+
+assert_image_versions_match
+
 if [ -n "$BACKEND_IMAGE" ]; then
     log "Deploying backend: $BACKEND_IMAGE"
-    ensure_update_image_available "$BACKEND_IMAGE"
     dokku config:set --no-restart "$BACKEND_APP" \
         APP_IMAGE_VERSION="$(image_tag "$BACKEND_IMAGE")" \
         APP_IMAGE_REF="$BACKEND_IMAGE"
@@ -126,7 +196,6 @@ fi
 
 if [ -n "$FRONTEND_IMAGE" ]; then
     log "Deploying frontend: $FRONTEND_IMAGE"
-    ensure_update_image_available "$FRONTEND_IMAGE"
     dokku config:set --no-restart "$FRONTEND_APP" \
         APP_IMAGE_VERSION="$(image_tag "$FRONTEND_IMAGE")" \
         APP_IMAGE_REF="$FRONTEND_IMAGE"
