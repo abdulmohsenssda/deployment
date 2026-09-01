@@ -15,7 +15,24 @@
 #                              versions (org.opencontainers.image.version)
 #                              disagree. Use only when knowingly running a
 #                              mismatched pair (e.g. targeted rollback).
+#   --skip-migrations          Skip the idempotent schema/migration replay
+#                              that normally follows a --backend-image update.
+#                              Only use this for rollbacks to older backend
+#                              images (schema can only move forward).
 #   --config <path>            Path to config.env file (default: ../config.env)
+#
+# Migration behavior:
+#   When --backend-image is provided, this script re-applies every
+#   pkg/db/migrations/*.sql file bundled inside the new backend image to the
+#   tenant's DB. The migrations are already idempotent (each ALTER is guarded
+#   by information_schema lookups), and applying them BEFORE the container is
+#   swapped means the new binary never boots against a schema it cannot INSERT
+#   into. This closes the class of failure where a tenant DB was frozen at an
+#   older schema (init-tenant-db.sh only ran at provisioning time) while the
+#   backend image advanced through new migrations — the failure mode was a
+#   silent HTTP 400 with an empty body from ``purchase_bill.go`` line 173
+#   after the ``INSERT INTO purchase_bill_product`` failed with
+#   ``Error 1054 Unknown column 'cost_price'``.
 # =============================================================================
 
 set -euo pipefail
@@ -51,6 +68,7 @@ FRONTEND_IMAGE=""
 RESTART=false
 SCALE=""
 SKIP_DRIFT_CHECK=false
+SKIP_MIGRATIONS=false
 declare -a ENV_VARS=()
 
 ensure_update_image_available() {
@@ -150,6 +168,7 @@ while [[ $# -gt 0 ]]; do
         --restart)           RESTART=true; shift ;;
         --scale)             SCALE="$2"; shift 2 ;;
         --skip-drift-check)  SKIP_DRIFT_CHECK=true; shift ;;
+        --skip-migrations)   SKIP_MIGRATIONS=true; shift ;;
         --config)            shift 2 ;;  # already parsed above
         -*)                  error "Unknown option: $1"; exit 1 ;;
         *)                   [ -z "$TENANT_NAME" ] && TENANT_NAME="$1"; shift ;;
@@ -185,6 +204,30 @@ if [ -n "$FRONTEND_IMAGE" ]; then
 fi
 
 assert_image_versions_match
+
+# ---- Apply schema/migrations from the new backend image ----
+# The tenant's DB was initialised via init-tenant-db.sh at provisioning time
+# and has been frozen at that schema ever since. If the backend image has
+# advanced through new migrations (e.g. columns added to purchase_bill_product
+# in ifritah-go#53), the running container will fail every INSERT that
+# references the new columns and return an empty-body 400 (see
+# pkg/handlers/purchase_bill.go finalizePurchaseBill line ~173). Every
+# migration in pkg/db/migrations/*.sql is idempotent (information_schema
+# guards on ALTERs), so re-applying the full set is a no-op where the DB is
+# already current, and a fix-up where it is not.
+if [ -n "$BACKEND_IMAGE" ] && [ "$SKIP_MIGRATIONS" != "true" ]; then
+    log "Applying schema/migrations from ${BACKEND_IMAGE} (idempotent)"
+    if ! "$SCRIPT_DIR/init-tenant-db.sh" "$TENANT_NAME" \
+        --schema-only \
+        --backend-image "$BACKEND_IMAGE" \
+        --config "$CONFIG_FILE"; then
+        error "Migration replay failed; refusing to swap the container onto a"
+        error "possibly-incompatible schema. Fix the DB (or pass --skip-migrations"
+        error "if you know the schema is already correct for the target image)"
+        error "and re-run update-tenant.sh."
+        exit 1
+    fi
+fi
 
 if [ -n "$BACKEND_IMAGE" ]; then
     log "Deploying backend: $BACKEND_IMAGE"
