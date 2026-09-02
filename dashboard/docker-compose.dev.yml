@@ -20,7 +20,7 @@ services:
       LISTEN: ":8080"
       DOCKER_BIN: docker
       DOKKU_CONTAINER: dokku
-      BASE_DOMAIN: ${BASE_DOMAIN:-localhost}
+      BASE_DOMAIN: ${BASE_DOMAIN:-dev.ifritah.com}
       PUBLIC_PROTOCOL: ${PUBLIC_PROTOCOL:-http}
       ADMIN_USER: ${ADMIN_USER:-admin}
       # bcrypt of "admin"

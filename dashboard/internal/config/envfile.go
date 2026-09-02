@@ -24,37 +24,72 @@ import (
 // Missing files are silently skipped.
 func LoadEnvFiles(paths ...string) {
 	for _, p := range paths {
-		f, err := os.Open(p)
-		if err != nil {
+		_ = readEnvFile(p, func(k, v string) error {
+			if value, present := os.LookupEnv(k); present && value != "" {
+				return nil
+			}
+			return os.Setenv(k, v)
+		})
+	}
+}
+
+// OverrideEnvFileValues loads selected deployment-owned values even when a
+// process environment value already exists. Compose env_file values can be
+// stale, so callers use this for settings whose source of truth is config.env.
+// Missing files are treated like LoadEnvFiles and do not return an error.
+func OverrideEnvFileValues(path string, keys ...string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("env file path is required")
+	}
+	allowed := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		allowed[key] = struct{}{}
+	}
+	err := readEnvFile(path, func(k, v string) error {
+		if _, ok := allowed[k]; !ok || v == "" {
+			return nil
+		}
+		if err := os.Setenv(k, v); err != nil {
+			return fmt.Errorf("set %s: %w", k, err)
+		}
+		return nil
+	})
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func readEnvFile(path string, apply func(string, string) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			line = strings.TrimPrefix(line, "export ")
-			eq := strings.IndexByte(line, '=')
-			if eq <= 0 {
-				continue
-			}
-			k := strings.TrimSpace(line[:eq])
-			v := strings.TrimSpace(line[eq+1:])
-			if n := len(v); n >= 2 {
-				if (v[0] == '"' && v[n-1] == '"') || (v[0] == '\'' && v[n-1] == '\'') {
-					v = v[1 : n-1]
-				}
-			}
-			if value, present := os.LookupEnv(k); present && value != "" {
-				continue
-			}
-			if err := os.Setenv(k, v); err != nil {
-				continue
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		k := strings.TrimSpace(line[:eq])
+		v := strings.TrimSpace(line[eq+1:])
+		if n := len(v); n >= 2 {
+			if (v[0] == '"' && v[n-1] == '"') || (v[0] == '\'' && v[n-1] == '\'') {
+				v = v[1 : n-1]
 			}
 		}
-		_ = f.Close()
+		if err := apply(k, v); err != nil {
+			return err
+		}
 	}
+	return sc.Err()
 }
 
 // UpdateEnvFileValue sets key=value in a simple KEY=VALUE env file, preserving

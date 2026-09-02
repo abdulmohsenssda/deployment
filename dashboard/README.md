@@ -45,7 +45,7 @@ runtime besides the docker socket.
 | `LISTEN`              | no       | `:8080`         |
 | `DOCKER_BIN`          | no       | `docker`        |
 | `DOKKU_CONTAINER`     | no       | `dokku`         |
-| `BASE_DOMAIN`         | no       | `localhost`     |
+| `BASE_DOMAIN`         | no       | `dev.ifritah.com` |
 | `PUBLIC_PROTOCOL`     | no       | `http` in dev, `https` in prod |
 | `SESSION_KEY`         | no       | random per boot |
 | `LOG_BUFFER_LINES`    | no       | `2000`          |
@@ -106,6 +106,12 @@ on the server.
 frontend API URLs. Production rejects `localhost`, `localtest.me`, loopback
 domains, and HTTP public URLs; local development may use `http` and local
 hostnames.
+
+When the dashboard can read `DEPLOY_CONFIG_FILE` (normally
+`/opt/deployment/config.env`), its `BASE_DOMAIN` and `PUBLIC_PROTOCOL` values
+override stale values inherited from Compose's `dashboard.env`. This keeps
+generated links tied to current deployment configuration instead of persisted
+Dashboard environment state. Recreate the Dashboard after changing the file.
 
 `LOG_DIR` is a persistent, writable directory mounted by both Compose
 profiles. The dashboard stores application log lines and recent operation
@@ -206,9 +212,9 @@ cat > /opt/dashboard/dashboard.env <<EOF
 ADMIN_USER=admin
 ADMIN_PASSWORD_HASH=$(go run ./cmd/hashpw 'pick-something-strong')
 SESSION_KEY=$(openssl rand -hex 32)
-BASE_DOMAIN=ifritah.com
 TENANT_NAME_PREFIX=prod-
 EOF
+# Set BASE_DOMAIN and PUBLIC_PROTOCOL in /opt/deployment/config.env.
 cd /opt/dashboard
 docker compose -f docker-compose.prod.yml up -d --build
 ```

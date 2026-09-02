@@ -67,6 +67,29 @@ func TestUpdateEnvFileValuePreservesExportPrefix(t *testing.T) {
 	}
 }
 
+func TestOverrideEnvFileValuesBeatsComposeValues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.env")
+	if err := os.WriteFile(path, []byte("BASE_DOMAIN=dev.ifritah.com\nPUBLIC_PROTOCOL=https\nADMIN_USER=config-user\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BASE_DOMAIN", "localhost")
+	t.Setenv("PUBLIC_PROTOCOL", "http")
+	t.Setenv("ADMIN_USER", "compose-user")
+
+	if err := OverrideEnvFileValues(path, "BASE_DOMAIN", "PUBLIC_PROTOCOL"); err != nil {
+		t.Fatalf("OverrideEnvFileValues: %v", err)
+	}
+	if got := os.Getenv("BASE_DOMAIN"); got != "dev.ifritah.com" {
+		t.Fatalf("BASE_DOMAIN = %q, want dev.ifritah.com", got)
+	}
+	if got := os.Getenv("PUBLIC_PROTOCOL"); got != "https" {
+		t.Fatalf("PUBLIC_PROTOCOL = %q, want https", got)
+	}
+	if got := os.Getenv("ADMIN_USER"); got != "compose-user" {
+		t.Fatalf("ADMIN_USER = %q, want compose-user", got)
+	}
+}
+
 func TestNormalizeTenantPrefix(t *testing.T) {
 	tests := map[string]string{
 		"":         "",

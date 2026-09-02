@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -26,15 +27,21 @@ import (
 )
 
 func main() {
-	// Pull MYSQL_*, BASE_DOMAIN, etc. from the deployment env files (same
-	// precedence verify-mysql.sh uses: install.env wins over config.env).
-	// Environment variables already set in the container (compose / shell)
-	// always take precedence over file values.
+	// Pull MYSQL_*, BASE_DOMAIN, etc. from the deployment env files. Compose
+	// injects dashboard.env before startup, so deployment-owned URL settings
+	// are explicitly reloaded from the configured deployment file below.
 	depDir := os.Getenv("DEPLOYMENT_DIR")
 	if depDir == "" {
 		depDir = "/opt/deployment"
 	}
-	config.LoadEnvFiles(depDir+"/install.env", depDir+"/config.env")
+	configPath := os.Getenv("DEPLOY_CONFIG_FILE")
+	if configPath == "" {
+		configPath = filepath.Join(depDir, "config.env")
+	}
+	config.LoadEnvFiles(filepath.Join(depDir, "install.env"), configPath)
+	if err := config.OverrideEnvFileValues(configPath, "BASE_DOMAIN", "PUBLIC_PROTOCOL"); err != nil {
+		log.Fatalf("deployment config: %v", err)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {

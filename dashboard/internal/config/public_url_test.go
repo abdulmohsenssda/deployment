@@ -13,6 +13,26 @@ func setLoadURLTestEnv(t *testing.T) {
 	t.Setenv("TENANT_NAME_PREFIX", "")
 }
 
+func TestLoadDefaultsToDevIfritahDomain(t *testing.T) {
+	setLoadURLTestEnv(t)
+	t.Setenv("DASHBOARD_ENV", "dev")
+	t.Setenv("BASE_DOMAIN", "")
+	t.Setenv("PUBLIC_PROTOCOL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BaseDomain != "dev.ifritah.com" {
+		t.Fatalf("BaseDomain = %q, want dev.ifritah.com", cfg.BaseDomain)
+	}
+	if got, err := cfg.PublicURLForTenant("hockun2"); err != nil {
+		t.Fatalf("PublicURLForTenant: %v", err)
+	} else if got != "http://hockun2.dev.ifritah.com" {
+		t.Fatalf("PublicURLForTenant() = %q, want http://hockun2.dev.ifritah.com", got)
+	}
+}
+
 func TestLoadProductionPublicURLDefaultsToHTTPS(t *testing.T) {
 	setLoadURLTestEnv(t)
 	t.Setenv("DASHBOARD_ENV", "prod")

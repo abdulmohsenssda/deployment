@@ -5,7 +5,8 @@
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d --force-recreate
 #
-# Required: dashboard.env with ADMIN_USER, ADMIN_PASSWORD_HASH, SESSION_KEY, BASE_DOMAIN
+# Required: dashboard.env with ADMIN_USER, ADMIN_PASSWORD_HASH, SESSION_KEY.
+# BASE_DOMAIN and PUBLIC_PROTOCOL come from DEPLOY_CONFIG_FILE when present.
 services:
   dashboard:
     image: ${DASHBOARD_IMAGE:-ssdawweq/dokku-dashboard:prod}

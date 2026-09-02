@@ -51,7 +51,7 @@ type Config struct {
 //	LISTEN=:8080
 //	DOCKER_BIN=docker
 //	DOKKU_CONTAINER=dokku
-//	BASE_DOMAIN=localhost
+//	BASE_DOMAIN=dev.ifritah.com
 //	PUBLIC_PROTOCOL=http|https (default "http", or "https" for prod)
 //	SESSION_KEY=<hex>         (auto-generated if missing — sessions reset on restart)
 //	LOG_BUFFER_LINES=2000
@@ -65,7 +65,7 @@ func Load() (Config, error) {
 		Listen:              envOr("LISTEN", ":8080"),
 		DockerBin:           envOr("DOCKER_BIN", "docker"),
 		DokkuContainer:      envOr("DOKKU_CONTAINER", "dokku"),
-		BaseDomain:          envOr("BASE_DOMAIN", "localhost"),
+		BaseDomain:          envOr("BASE_DOMAIN", "dev.ifritah.com"),
 		PublicProtocol:      envOr("PUBLIC_PROTOCOL", ""),
 		AdminUser:           os.Getenv("ADMIN_USER"),
 		AdminHash:           os.Getenv("ADMIN_PASSWORD_HASH"),
