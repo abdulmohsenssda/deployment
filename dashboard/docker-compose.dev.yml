@@ -36,8 +36,8 @@ services:
       APP_IMAGE_VERSION_DEFAULT: ${APP_IMAGE_VERSION_DEFAULT:-}
       MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
-      MYSQL_ROOT_USER: ${MYSQL_ROOT_USER:-root}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
+      MYSQL_ADMIN_USER: ${MYSQL_ADMIN_USER:-}
+      MYSQL_ADMIN_PASSWORD: ${MYSQL_ADMIN_PASSWORD:-}
       # Path to /opt/deployment on the *host* docker daemon. The dashboard spawns
       # a sidecar container with this directory mounted to execute scripts.
       # On Windows Docker Desktop, the host path is the absolute Windows path.
@@ -50,9 +50,8 @@ services:
       STORAGE_ROOT: ${STORAGE_ROOT:-/opt/tenant-data}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # Mount the repo root read-only so the dashboard can read install.env
-      # and config.env to reuse the same MYSQL admin credentials the scripts
-      # already use (no need to duplicate them in compose).
+      # Mount the repo root read-only so empty Compose credential values can be
+      # filled from install.env / config.env inside the dashboard.
       - ${SCRIPTS_HOST_PATH}:/opt/deployment:ro
       - ${LOG_DIR:-./.dashboard-logs}:/opt/dashboard-logs
       - ${TENANT_STATE_DIR:-./.tenant-state}:/opt/tenant-state

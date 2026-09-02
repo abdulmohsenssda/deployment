@@ -15,6 +15,13 @@ Use `--plan` to see the underlying script before running it:
 # bash scripts/update-tenant.sh acme --restart
 ```
 
+After changing `BASE_DOMAIN`, run the tenant update to rewrite persisted
+Dokku domain/URL values. Repair all existing tenants with:
+
+```bash
+sudo ./scripts/post-merge-cleanup.sh
+```
+
 **Two repos own their own build:**
 
 ```

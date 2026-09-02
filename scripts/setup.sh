@@ -146,13 +146,13 @@ if $NEED_CONFIG; then
     info "MySQL connection (your existing MySQL server on this machine)."
     MYSQL_HOST=$(prompt_val "MySQL host (use host.docker.internal to reach host)" "host.docker.internal")
     MYSQL_PORT=$(prompt_val "MySQL port" "3306")
-    MYSQL_ROOT_USER=$(prompt_val "MySQL root user" "root")
+    MYSQL_ADMIN_USER=$(prompt_val "MySQL deployment account" "dokku_admin")
 
-    MYSQL_ROOT_PASSWORD=""
-    while [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; do
-        MYSQL_ROOT_PASSWORD=$(prompt_val "MySQL root password")
-        if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-            warn "Please enter your real MySQL root password."
+    MYSQL_ADMIN_PASSWORD=""
+    while [ -z "$MYSQL_ADMIN_PASSWORD" ] || [ "$MYSQL_ADMIN_PASSWORD" = "changeme" ]; do
+        MYSQL_ADMIN_PASSWORD=$(prompt_val "MySQL deployment account password")
+        if [ -z "$MYSQL_ADMIN_PASSWORD" ] || [ "$MYSQL_ADMIN_PASSWORD" = "changeme" ]; then
+            warn "Please enter the password for the deployment account."
         fi
     done
 
@@ -215,8 +215,8 @@ LOG_DIR=${LOG_DIR}
 # External MySQL
 MYSQL_HOST=${MYSQL_HOST}
 MYSQL_PORT=${MYSQL_PORT}
-MYSQL_ROOT_USER=${MYSQL_ROOT_USER}
-MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+MYSQL_ADMIN_USER=${MYSQL_ADMIN_USER}
+MYSQL_ADMIN_PASSWORD=${MYSQL_ADMIN_PASSWORD}
 MYSQL_MASTER_DB=${MYSQL_MASTER_DB}
 
 # Docker Hub
@@ -267,8 +267,16 @@ TENANT_STATE_DIR="${TENANT_STATE_DIR:-/opt/tenant-state}"
 LOG_DIR="${LOG_DIR:-/opt/dashboard-logs}"
 MYSQL_HOST="${MYSQL_HOST:-host.docker.internal}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
+if [ -z "${MYSQL_ADMIN_USER:-}" ]; then
+    if [ -n "${MYSQL_ROOT_USER:-}" ]; then
+        MYSQL_ADMIN_USER="$MYSQL_ROOT_USER"
+    elif [ -n "${MYSQL_ROOT_PASSWORD:-}" ] && [ -z "${MYSQL_ADMIN_PASSWORD:-}" ]; then
+        MYSQL_ADMIN_USER="root"
+    else
+        MYSQL_ADMIN_USER="dokku_admin"
+    fi
+fi
+MYSQL_ADMIN_PASSWORD="${MYSQL_ADMIN_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
 MYSQL_MASTER_DB="${MYSQL_MASTER_DB:-zatca_master}"
 DOCKERHUB_USERNAME="${DOCKERHUB_USERNAME:-}"
 WEBHOOK_SECRET="${WEBHOOK_SECRET:-}"
@@ -366,7 +374,7 @@ log "Creating backup/state/log directories"
 mkdir -p "${BACKUP_DIR}" "${TENANT_STATE_DIR}" "${LOG_DIR}"
 
 # ---- Step 5b: External MySQL — master database ----
-if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ "$MYSQL_ROOT_PASSWORD" != "changeme" ]; then
+if mysql_admin_configured; then
     log "Setting up master database: ${MYSQL_MASTER_DB}"
 
     run_mysql <<SQLEOF
@@ -391,7 +399,7 @@ SQLEOF
 
     log "Master database ready: ${MYSQL_MASTER_DB}.tenant"
 else
-    warn "MYSQL_ROOT_PASSWORD not configured. Skipping master DB setup."
+    warn "MYSQL_ADMIN_PASSWORD not configured. Skipping master DB setup."
     warn "Edit config.env and re-run setup.sh to create master database."
 fi
 

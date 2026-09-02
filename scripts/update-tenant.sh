@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# update-tenant.sh — Update a tenant's app images or config
+# update-tenant.sh — Update a tenant's app images, config, or routing
 # =============================================================================
 # Usage:
 #   ./scripts/update-tenant.sh <tenant-name> [options]
@@ -20,6 +20,11 @@
 #                              Only use this for rollbacks to older backend
 #                              images (schema can only move forward).
 #   --config <path>            Path to config.env file (default: ../config.env)
+#
+# Routing behavior:
+#   Every update reconciles the persisted frontend domain, APP_DOMAIN, and
+#   API_URL with the current BASE_DOMAIN. This repairs tenants created before
+#   a base-domain change; use post-merge-cleanup.sh for a fleet-wide repair.
 #
 # Migration behavior:
 #   When --backend-image is provided, this script re-applies every
@@ -182,6 +187,10 @@ fi
 
 TENANT_NAME="$(tenant_full_name "$TENANT_NAME")" || exit 1
 
+BASE_DOMAIN="${BASE_DOMAIN:?BASE_DOMAIN not set in config.env}"
+TENANT_DOMAIN="${TENANT_NAME}.${BASE_DOMAIN}"
+PUBLIC_TENANT_URL="$(public_tenant_url "$TENANT_NAME")" || exit 1
+
 BACKEND_APP="${TENANT_NAME}-backend"
 FRONTEND_APP="${TENANT_NAME}-frontend"
 
@@ -245,6 +254,18 @@ if [ -n "$FRONTEND_IMAGE" ]; then
     dokku_git_from_image "$FRONTEND_APP" "$FRONTEND_IMAGE"
 fi
 
+# Existing tenants keep APP_DOMAIN/API_URL in Dokku config from their original
+# provisioning. Reconcile those persisted values whenever the tenant is updated.
+# The backend must remain internal-only; the frontend owns the public hostname.
+log "Synchronizing tenant routing: ${PUBLIC_TENANT_URL}"
+dokku domains:clear "$BACKEND_APP" >/dev/null || true
+dokku proxy:disable "$BACKEND_APP" >/dev/null 2>&1 || true
+dokku domains:clear "$FRONTEND_APP" >/dev/null
+dokku domains:add "$FRONTEND_APP" "$TENANT_DOMAIN" >/dev/null
+dokku config:set --no-restart "$FRONTEND_APP" \
+    APP_DOMAIN="$TENANT_DOMAIN" \
+    API_URL="${PUBLIC_TENANT_URL}/api"
+
 # ---- Scale ----
 if [ -n "$SCALE" ]; then
     log "Scaling backend to $SCALE instances"
@@ -255,6 +276,10 @@ fi
 if $RESTART; then
     log "Restarting tenant..."
     dokku ps:restart "$BACKEND_APP"
+    dokku ps:restart "$FRONTEND_APP"
+else
+    # APP_DOMAIN/API_URL are runtime config, so apply them even when no
+    # image update or explicit --restart was requested.
     dokku ps:restart "$FRONTEND_APP"
 fi
 

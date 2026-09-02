@@ -1679,11 +1679,8 @@ func (s *server) handleTenantUpdateCredentials(w http.ResponseWriter, r *http.Re
 	dbName := "tenant_" + strings.ReplaceAll(name, "-", "_")
 	host := s.cfg.MySQLHost
 	port := s.cfg.MySQLPort
-	user := strings.TrimSpace(os.Getenv("MYSQL_ROOT_USER"))
-	if user == "" {
-		user = "root"
-	}
-	password := os.Getenv("MYSQL_ROOT_PASSWORD")
+	user := strings.TrimSpace(s.cfg.MySQLAdminUser)
+	password := s.cfg.MySQLAdminPassword
 
 	// Use the backend API instead — it handles bcrypt hashing
 	// Find the backend's internal URL from Dokku
@@ -1896,8 +1893,8 @@ func (s *server) render(w http.ResponseWriter, name string, data any) {
 		if title, exists := m["PageTitle"].(string); !exists || strings.TrimSpace(title) == "" {
 			m["PageTitle"] = pageTitleFor(name, m)
 		}
-		pw := strings.TrimSpace(getenv("MYSQL_ROOT_PASSWORD"))
-		user := strings.TrimSpace(getenv("MYSQL_ROOT_USER"))
+		pw := strings.TrimSpace(s.cfg.MySQLAdminPassword)
+		user := strings.TrimSpace(s.cfg.MySQLAdminUser)
 		configured := pw != "" && pw != "changeme"
 		m["MySQLConfigured"] = configured
 		m["MySQLNeedsConfig"] = !configured
@@ -1965,10 +1962,6 @@ func (s *server) renderPartial(w http.ResponseWriter, name string, data any) {
 	if err := t.ExecuteTemplate(w, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-func getenv(key string) string {
-	return os.Getenv(key)
 }
 
 var validName = func() func(string) bool {

@@ -40,7 +40,7 @@
     {{if .MySQLNeedsConfig}}
     <div class="alert alert-warn">
       <strong>MySQL admin credentials are not configured.</strong>
-      The deployment scripts read <code>MYSQL_ROOT_USER</code> and <code>MYSQL_ROOT_PASSWORD</code> from <code>install.env</code> or <code>config.env</code>.
+      The deployment scripts read <code>MYSQL_ADMIN_USER</code> and <code>MYSQL_ADMIN_PASSWORD</code> from <code>install.env</code> or <code>config.env</code>.
       {{if .MySQLAdminUser}}Currently detected admin user: <code>{{.MySQLAdminUser}}</code> — password missing.{{end}}
     </div>
     {{end}}

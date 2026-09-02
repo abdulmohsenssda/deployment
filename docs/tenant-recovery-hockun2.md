@@ -159,7 +159,31 @@ Any future tenant deploy via `update-tenant.sh` will:
 - Re-apply every migration bundled in the backend image (idempotent), so a
   tenant DB that lags the current schema is auto-repaired before the new
   container is swapped in.
+- Reconcile the tenant frontend domain, `APP_DOMAIN`, and `API_URL` with the
+  current `BASE_DOMAIN`, so old tenants follow a base-domain change.
 
 Both checks can be bypassed (`--skip-drift-check`, `--skip-migrations`) for
 targeted rollback investigations, but both bypasses are loud (warning
 banners on stdout and stderr).
+
+## If `BASE_DOMAIN` changed
+
+`BASE_DOMAIN` controls new tenant values; it does not rewrite persisted Dokku
+settings by itself. Repair one tenant with:
+
+```bash
+sudo ./scripts/update-tenant.sh hockun2 --config /opt/deployment/config.env
+```
+
+Repair every tenant with:
+
+```bash
+sudo ./scripts/post-merge-cleanup.sh
+```
+
+Verify the frontend owns the new hostname and has the matching `API_URL`:
+
+```bash
+docker exec dokku dokku domains:report hockun2-frontend
+docker exec dokku dokku config:show hockun2-frontend | grep -E '^(APP_DOMAIN|API_URL)='
+```

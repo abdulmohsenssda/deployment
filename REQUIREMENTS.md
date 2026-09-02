@@ -69,7 +69,8 @@ Copy from [config.env.example](config.env.example) and fill:
 - `DOKKU_PORT=8080` — host port the dokku container publishes.
 - `STORAGE_ROOT=/opt/tenant-data`
 - `MYSQL_HOST=host.docker.internal`, `MYSQL_PORT=3306`,
-  `MYSQL_ROOT_USER`, `MYSQL_ROOT_PASSWORD`
+  `MYSQL_ADMIN_USER`, `MYSQL_ADMIN_PASSWORD` — the least-privileged
+  deployment account; it does not need to be the MySQL root account.
 - `MYSQL_MASTER_DB=zatca_master` — registry table `tenant(name, db_name, enabled)`
 - `MYSQL_TENANT_HOST=172.%` — docker bridge subnet; **must match** the host
   pattern used in [scripts/remove-tenant.sh](scripts/remove-tenant.sh)
@@ -85,7 +86,8 @@ Copy from [config.env.example](config.env.example) and fill:
 
 ## 4. One-time MySQL admin grants
 
-Required for the dokku-side admin user to create per-tenant DBs/users:
+Required for the deployment-side admin user to create per-tenant DBs/users.
+The account is intentionally not required to be MySQL root:
 
 ```sql
 GRANT ALL PRIVILEGES ON `tenant_%`.* TO 'dokku_admin'@'172.%' WITH GRANT OPTION;
@@ -104,6 +106,9 @@ Rules learned the hard way:
   `CREATE USER` / `GRANT`.
 - `CREATE USER IF NOT EXISTS` does **not** update an existing password — always
   pair with `ALTER USER … IDENTIFIED BY` for idempotency.
+- Existing-tenant schema replay uses the tenant's `DB_USER`/`DB_PASSWORD`
+  account and does not require `MYSQL_ADMIN_PASSWORD`; the deployment account
+  is needed only when a tenant database or user must be provisioned.
 
 ---
 

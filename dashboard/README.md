@@ -60,8 +60,13 @@ runtime besides the docker socket.
 | `STORAGE_ROOT`        | no       | `/opt/tenant-data` |
 | `MYSQL_HOST`          | no       | `127.0.0.1`   |
 | `MYSQL_PORT`          | no       | `3306`        |
-| `MYSQL_ROOT_USER`     | no       | `root`        |
-| `MYSQL_ROOT_PASSWORD` | no       | —             |
+| `MYSQL_ADMIN_USER`     | no       | `dokku_admin`  |
+| `MYSQL_ADMIN_PASSWORD` | no       | —             |
+
+`MYSQL_ADMIN_USER` and `MYSQL_ADMIN_PASSWORD` identify the least-privileged
+deployment account used for direct MySQL operations. They do not need to be
+the MySQL root credentials. `MYSQL_ROOT_USER` and `MYSQL_ROOT_PASSWORD` remain
+accepted as legacy fallbacks for existing installations.
 
 Version picker values are Docker image tags. Full tenant flows (create, update, and
 tenant sync) default to `dev`, because that tag is published for both apps in the

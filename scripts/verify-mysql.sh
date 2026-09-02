@@ -33,12 +33,20 @@ done
 
 : "${MYSQL_HOST:=host.docker.internal}"
 : "${MYSQL_PORT:=3306}"
-: "${MYSQL_ROOT_USER:=dokku_admin}"
-: "${MYSQL_ROOT_PASSWORD:=}"
+if [ -z "${MYSQL_ADMIN_USER:-}" ]; then
+    if [ -n "${MYSQL_ROOT_USER:-}" ]; then
+        MYSQL_ADMIN_USER="$MYSQL_ROOT_USER"
+    elif [ -n "${MYSQL_ROOT_PASSWORD:-}" ] && [ -z "${MYSQL_ADMIN_PASSWORD:-}" ]; then
+        MYSQL_ADMIN_USER="root"
+    else
+        MYSQL_ADMIN_USER="dokku_admin"
+    fi
+fi
+: "${MYSQL_ADMIN_PASSWORD:=${MYSQL_ROOT_PASSWORD:-}}"
 : "${MYSQL_MASTER_DB:=zatca_master}"
 
-if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-    error "MYSQL_ROOT_PASSWORD not set (looked in install.env and config.env)"
+if [ -z "$MYSQL_ADMIN_PASSWORD" ] || [ "$MYSQL_ADMIN_PASSWORD" = "changeme" ]; then
+    error "MYSQL_ADMIN_PASSWORD not set (looked in install.env and config.env)"
     exit 1
 fi
 
@@ -46,7 +54,7 @@ fi
 ENV_FILE="$(mktemp)"
 trap 'rm -f "$ENV_FILE"' EXIT
 chmod 600 "$ENV_FILE"
-printf 'MYSQL_PWD=%s\n' "$MYSQL_ROOT_PASSWORD" > "$ENV_FILE"
+printf 'MYSQL_PWD=%s\n' "$MYSQL_ADMIN_PASSWORD" > "$ENV_FILE"
 
 mysql_client_host() {
     case "${MYSQL_HOST}" in
@@ -56,7 +64,7 @@ mysql_client_host() {
 }
 
 MYSQL_CLIENT_HOST="$(mysql_client_host)"
-log "Testing ${MYSQL_ROOT_USER}@${MYSQL_CLIENT_HOST}:${MYSQL_PORT}..."
+log "Testing ${MYSQL_ADMIN_USER}@${MYSQL_CLIENT_HOST}:${MYSQL_PORT}..."
 if [ "$MYSQL_CLIENT_HOST" != "$MYSQL_HOST" ]; then
     info "Configured MYSQL_HOST=${MYSQL_HOST}; using ${MYSQL_CLIENT_HOST} from the Docker verifier container."
 fi
@@ -74,7 +82,7 @@ set +e
 docker run --rm --env-file "$ENV_FILE" \
     --add-host=host.docker.internal:host-gateway \
     mysql:8.0 mysql \
-        --protocol=TCP -h "$MYSQL_CLIENT_HOST" -P "$MYSQL_PORT" -u "$MYSQL_ROOT_USER" \
+        --protocol=TCP -h "$MYSQL_CLIENT_HOST" -P "$MYSQL_PORT" -u "$MYSQL_ADMIN_USER" \
         --connect-timeout=5 --batch --skip-column-names \
         -e "SELECT user(), @@hostname, @@version;"
 RC=$?
@@ -85,7 +93,7 @@ if [ $RC -ne 0 ]; then
     error "Common causes:"
     error "  • MySQL bind-address still 127.0.0.1 — set to 172.17.0.1 or 0.0.0.0"
     error "  • Firewall blocking 3306 from docker bridge"
-    error "  • User '${MYSQL_ROOT_USER}'@'172.%' not created or wrong password"
+    error "  • User '${MYSQL_ADMIN_USER}'@'172.%' not created or wrong password"
     exit $RC
 fi
 
@@ -96,7 +104,7 @@ log "Checking grants..."
 GRANTS="$(docker run --rm --env-file "$ENV_FILE" \
     --add-host=host.docker.internal:host-gateway \
     mysql:8.0 mysql \
-        --protocol=TCP -h "$MYSQL_CLIENT_HOST" -P "$MYSQL_PORT" -u "$MYSQL_ROOT_USER" \
+        --protocol=TCP -h "$MYSQL_CLIENT_HOST" -P "$MYSQL_PORT" -u "$MYSQL_ADMIN_USER" \
         --batch --skip-column-names \
         -e "SHOW GRANTS FOR CURRENT_USER();")"
 printf '%s\n' "$GRANTS"

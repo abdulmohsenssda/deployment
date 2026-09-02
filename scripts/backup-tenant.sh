@@ -74,8 +74,6 @@ STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/tenant-backups}"
 MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 RETENTION_DAYS="${RETENTION_OVERRIDE:-${BACKUP_RETENTION_DAYS:-30}}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
@@ -122,7 +120,7 @@ backup_tenant() {
 
     # Backup MySQL database from external server
     local tenant_db="tenant_${tenant//-/_}"
-    if [ -n "$MYSQL_ROOT_PASSWORD" ] && [ "$MYSQL_ROOT_PASSWORD" != "changeme" ]; then
+    if mysql_admin_configured; then
         # Check if the database exists
         if run_mysql -e "USE \`${tenant_db}\`" 2>/dev/null; then
             db_dest="$BACKUP_DIR/${tenant}_mysql_${TIMESTAMP}.sql.gz"
@@ -146,7 +144,7 @@ backup_tenant() {
             LAST_VERIFIED="false"
         fi
     else
-        warn "MYSQL_ROOT_PASSWORD is not configured; cannot create SQL backup for '$tenant_db'."
+        warn "MYSQL_ADMIN_PASSWORD is not configured; cannot create SQL backup for '$tenant_db'."
         LAST_VERIFIED="false"
     fi
 

@@ -98,16 +98,10 @@ TENANT_NAME="$(tenant_full_name "$TENANT_NAME")" || exit 1
 
 BASE_DOMAIN="${BASE_DOMAIN:?BASE_DOMAIN not set in config.env}"
 DOKKU_PORT="${DOKKU_PORT:-8080}"
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 TENANT_SCHEMA_IMAGE_PATH="${TENANT_SCHEMA_IMAGE_PATH:-/app/db/schema/schema.sql}"
 TENANT_MIGRATIONS_IMAGE_DIR="${TENANT_MIGRATIONS_IMAGE_DIR:-/app/db/migrations}"
 TENANT_IMAGE_PULL_POLICY="${TENANT_IMAGE_PULL_POLICY:-always}"
 TENANT_IGNORED_SCHEMA_FILES="${TENANT_IGNORED_SCHEMA_FILES:-car_part.sql}"
-
-if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-    error "MYSQL_ROOT_PASSWORD is not configured; cannot initialize tenant DB."
-    exit 1
-fi
 
 BACKEND_APP="${TENANT_NAME}-backend"
 TENANT_DB_NAME="tenant_${TENANT_NAME//-/_}"
@@ -179,6 +173,21 @@ ensure_tenant_database() {
     if $DRY_RUN; then
         info "Would ensure database exists: $TENANT_DB_NAME"
         return 0
+    fi
+
+    # Existing tenants can replay schema with their scoped DB account. The
+    # control-plane account is only needed when the database itself is absent.
+    if tenant_db_credentials_configured &&
+        run_tenant_mysql "$TENANT_DB_NAME" -N -B -e "SELECT 1" >/dev/null 2>&1; then
+        info "Tenant database is reachable with its application DB account: $TENANT_DB_NAME"
+        return 0
+    fi
+
+    if ! mysql_admin_configured; then
+        error "Tenant database '$TENANT_DB_NAME' is not reachable with its application DB credentials."
+        error "For an existing tenant, configure DB_USER/DB_PASSWORD (or DBUSER/PASSWORD) and retry."
+        error "MYSQL_ADMIN_USER/MYSQL_ADMIN_PASSWORD are only needed to create a missing tenant database."
+        exit 1
     fi
 
     run_mysql <<SQLEOF
@@ -303,6 +312,13 @@ tenant_db_setting() {
         return 0
     fi
     printf '%s' "$fallback"
+}
+
+tenant_db_credentials_configured() {
+    local password
+    password="$(tenant_db_setting DB_PASSWORD "")"
+    [ -n "$password" ] || password="$(tenant_db_setting PASSWORD "")"
+    [ -n "$password" ]
 }
 
 tenant_db_host() {

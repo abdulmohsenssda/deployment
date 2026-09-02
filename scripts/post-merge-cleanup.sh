@@ -12,8 +12,8 @@
 #   3. Removes the public domain/proxy from backend apps. Only frontend apps
 #      should own <tenant>.$BASE_DOMAIN; otherwise Dokku generates duplicate
 #      nginx server_name blocks.
-#   4. Sets BACKEND_URL / PORT / APP_DOMAIN on the frontend, BASEURL on the
-#      backend, then `ps:rebuild`s both apps so the new wiring is applied.
+#   4. Sets BACKEND_URL / PORT / APP_DOMAIN / API_URL on the frontend, BASEURL
+#      on the backend, then `ps:rebuild`s both apps so the new wiring is applied.
 #   5. Validates Dokku nginx config and rebuilds proxy config.
 #
 # Usage:
@@ -175,6 +175,10 @@ for t in "${TENANTS[@]}"; do
     be="${t}-backend"; fe="${t}-frontend"
     net="$TENANT_NETWORK"
     domain="${t}.${BASE_DOMAIN}"
+    public_url="$(public_tenant_url "$t")" || {
+        error "  invalid public URL for tenant $t; skipping"
+        continue
+    }
 
     log "=== ${t} ==="
 
@@ -207,7 +211,8 @@ for t in "${TENANTS[@]}"; do
     dk_dokku config:set --no-restart "$fe" \
         BACKEND_URL="http://${be}.web:${BACKEND_PORT}" \
         PORT="$FRONTEND_PORT" \
-        APP_DOMAIN="$domain" >/dev/null
+        APP_DOMAIN="$domain" \
+        API_URL="${public_url}/api" >/dev/null
 
     info "  rebuild: $be, $fe"
     dk_dokku ps:rebuild "$be" || warn "  $be rebuild failed (deploy not yet done?)"

@@ -106,7 +106,7 @@ image_tag() {
 get_tenant_override() {
     local tenant="$1"
     local col="${APP_TYPE}_image"
-    [ -z "${MYSQL_ROOT_PASSWORD:-}" ] && { echo ""; return; }
+    ! mysql_admin_configured && { echo ""; return; }
     run_mysql -N -B "$MYSQL_MASTER_DB" -e \
         "SELECT $col FROM tenant WHERE name='${tenant}' AND enabled=1 LIMIT 1;" 2>/dev/null \
         | head -1 || echo ""

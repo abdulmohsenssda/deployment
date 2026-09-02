@@ -83,8 +83,15 @@ grep -q 'proxy:disable "$BACKEND_APP"' scripts/create-tenant.sh \
     || FAIL "create-tenant must disable backend proxy"
 grep -q 'domains:clear "$be"' scripts/post-merge-cleanup.sh \
     && grep -q 'proxy:disable "$be"' scripts/post-merge-cleanup.sh \
-    && PASS "cleanup removes existing backend public proxy" \
+    && grep -q 'API_URL="\${public_url}/api"' scripts/post-merge-cleanup.sh \
+    && PASS "cleanup removes existing backend public proxy and refreshes frontend URL" \
     || FAIL "cleanup must remove existing backend public proxy"
+grep -q 'BASE_DOMAIN="\${BASE_DOMAIN:?BASE_DOMAIN not set in config.env}"' scripts/update-tenant.sh \
+    && grep -q 'domains:clear "\$BACKEND_APP"' scripts/update-tenant.sh \
+    && grep -q 'APP_DOMAIN="\$TENANT_DOMAIN"' scripts/update-tenant.sh \
+    && grep -q 'API_URL="\${PUBLIC_TENANT_URL}/api"' scripts/update-tenant.sh \
+    && PASS "tenant update reconciles persisted routing values" \
+    || FAIL "tenant update must reconcile persisted routing values"
 grep -q 'ensure_tenant_network "$TENANT_NETWORK"' scripts/create-tenant.sh \
     && grep -q 'docker network inspect \$network' scripts/create-tenant.sh \
     && grep -q 'docker network create \$network' scripts/create-tenant.sh \

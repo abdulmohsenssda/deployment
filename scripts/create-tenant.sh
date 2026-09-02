@@ -264,7 +264,6 @@ fi
 BASE_DOMAIN="${BASE_DOMAIN:?BASE_DOMAIN not set in config.env}"
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 HAS_DATABASE_URL=false
 HAS_DB_PARTS=false
 if has_env_var "DATABASE_URL"; then
@@ -292,9 +291,9 @@ if [ -n "$BACKEND_IMAGE" ] && ! $HAS_DATABASE_URL && ! $HAS_DB_PARTS; then
         error "Either remove --no-database and configure MySQL, or provide explicit DB env vars."
         exit 1
     fi
-    if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-        error "Backend image deploy requires database provisioning, but MYSQL_ROOT_PASSWORD is not configured in config.env."
-        error "Set MYSQL_ROOT_PASSWORD, run scripts/verify-mysql.sh, then retry; or provide DATABASE_URL/DB_* via --env; or use --git-only."
+    if ! mysql_admin_configured; then
+        error "Backend image deploy requires database provisioning, but MYSQL_ADMIN_PASSWORD is not configured in config.env."
+        error "Set MYSQL_ADMIN_USER/MYSQL_ADMIN_PASSWORD for the deployment account, run scripts/verify-mysql.sh, then retry; or provide DATABASE_URL/DB_* via --env; or use --git-only."
         exit 1
     fi
 fi
@@ -547,8 +546,8 @@ TENANT_DB_USER="usr_${TENANT_NAME//-/_}"
 DB_PROVISIONED=false
 
 if ! $NO_DATABASE; then
-    if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-        warn "MYSQL_ROOT_PASSWORD not set in config.env — skipping database creation."
+    if ! mysql_admin_configured; then
+        warn "MYSQL_ADMIN_PASSWORD not set in config.env — skipping database creation."
     else
         # Generate a random password — but if the tenant backend already has a
         # DB_PASSWORD in Dokku config (re-run scenario), reuse it so the running
@@ -566,7 +565,7 @@ if ! $NO_DATABASE; then
         # dev-only diag
         if [ "${DASHBOARD_ENV:-}" = "dev" ]; then
             info "[dev-diag] MYSQL_CLIENT_MODE=${MYSQL_CLIENT_MODE:-<unset>} _MYSQL_VIA=${_MYSQL_VIA:-<unset>}"
-            info "[dev-diag] MYSQL_HOST=${MYSQL_HOST:-<unset>} MYSQL_PORT=${MYSQL_PORT:-<unset>} MYSQL_ROOT_USER=${MYSQL_ROOT_USER:-<unset>}"
+            info "[dev-diag] MYSQL_HOST=${MYSQL_HOST:-<unset>} MYSQL_PORT=${MYSQL_PORT:-<unset>} MYSQL_ADMIN_USER=$(mysql_admin_user)"
             info "[dev-diag] MYSQL_TENANT_HOST='${MYSQL_TENANT_HOST}' MYSQL_APP_HOST=${MYSQL_APP_HOST}"
             info "[dev-diag] TENANT_DB_USER=${TENANT_DB_USER} TENANT_DB_NAME=${TENANT_DB_NAME}"
             info "[dev-diag] SQL: DROP @'localhost'; CREATE/ALTER @'${MYSQL_TENANT_HOST}'; GRANT ON ${TENANT_DB_NAME}.*"

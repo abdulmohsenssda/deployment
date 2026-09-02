@@ -35,6 +35,8 @@ type Config struct {
 	BackupRetentionDays int    // age in days before automatic backups are pruned.
 	MySQLHost           string // MySQL host for accounting export queries.
 	MySQLPort           string // MySQL port for accounting export queries.
+	MySQLAdminUser      string // least-privileged deployment account for direct MySQL operations.
+	MySQLAdminPassword  string // password for the deployment account.
 }
 
 // Load reads configuration from the process environment.
@@ -81,6 +83,8 @@ func Load() (Config, error) {
 		BackupRetentionDays: envInt("BACKUP_RETENTION_DAYS", 30),
 		MySQLHost:           envOr("MYSQL_HOST", "127.0.0.1"),
 		MySQLPort:           envOr("MYSQL_PORT", "3306"),
+		MySQLAdminUser:      mysqlAdminUser(),
+		MySQLAdminPassword:  mysqlAdminPassword(),
 	}
 	if baseDomain, err := normalizeBaseDomain(c.BaseDomain); err != nil {
 		return c, fmt.Errorf("BASE_DOMAIN: %w", err)
@@ -127,6 +131,26 @@ func envOr(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func mysqlAdminUser() string {
+	if user := os.Getenv("MYSQL_ADMIN_USER"); user != "" {
+		return user
+	}
+	if user := os.Getenv("MYSQL_ROOT_USER"); user != "" {
+		return user
+	}
+	if os.Getenv("MYSQL_ROOT_PASSWORD") != "" && os.Getenv("MYSQL_ADMIN_PASSWORD") == "" {
+		return "root"
+	}
+	return "dokku_admin"
+}
+
+func mysqlAdminPassword() string {
+	if password := os.Getenv("MYSQL_ADMIN_PASSWORD"); password != "" {
+		return password
+	}
+	return os.Getenv("MYSQL_ROOT_PASSWORD")
 }
 
 func envInt(k string, def int) int {

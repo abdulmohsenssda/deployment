@@ -120,7 +120,7 @@ pass "labels are listed and artifact traversal is rejected"
 echo
 echo "=== incomplete backups are marked unverified ==="
 GENERATED="$BD/generated"
-STORAGE_ROOT="$BD/src" BACKUP_DIR="$GENERATED" MYSQL_ROOT_PASSWORD=changeme \
+STORAGE_ROOT="$BD/src" BACKUP_DIR="$GENERATED" MYSQL_ADMIN_PASSWORD=changeme \
     bash scripts/backup-tenant.sh acme --no-prune --config "$CFG" >/dev/null
 manifest="$(find "$GENERATED" -maxdepth 1 -name '*.meta.json' -print -quit)"
 [ -n "$manifest" ] || fail "backup script did not write a manifest"

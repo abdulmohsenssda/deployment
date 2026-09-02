@@ -10,10 +10,10 @@ import (
 
 // LoadEnvFiles reads simple KEY=VALUE files (shell-style, with optional
 // `export ` prefix and # comments) and merges them into the process
-// environment. Files listed earlier win — i.e. an existing key is never
-// overwritten. This mirrors `verify-mysql.sh`, which reads install.env first
-// and falls back to config.env, so the dashboard sees the exact same MySQL
-// admin credentials the deployment scripts use.
+// environment. Non-empty process values take precedence. Empty process values
+// are filled from the files, allowing Compose to declare canonical keys
+// without blocking credentials loaded from disk. Files listed earlier win over
+// later files, matching `verify-mysql.sh`.
 //
 // Quoting:
 //
@@ -46,8 +46,11 @@ func LoadEnvFiles(paths ...string) {
 					v = v[1 : n-1]
 				}
 			}
-			if _, present := os.LookupEnv(k); !present {
-				_ = os.Setenv(k, v)
+			if value, present := os.LookupEnv(k); present && value != "" {
+				continue
+			}
+			if err := os.Setenv(k, v); err != nil {
+				continue
 			}
 		}
 		_ = f.Close()

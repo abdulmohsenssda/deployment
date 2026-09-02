@@ -51,4 +51,26 @@ got="$(dokku_host_port)"
 [ "$got" = "8080" ] && pass "falls back to 8080 when nothing else is set" || fail "expected 8080 got '$got'"
 
 echo ""
+echo "=== MySQL admin credential resolution ==="
+unset MYSQL_ADMIN_USER MYSQL_ADMIN_PASSWORD MYSQL_ROOT_USER MYSQL_ROOT_PASSWORD
+[ "$(mysql_admin_user)" = "dokku_admin" ] \
+    && pass "defaults to dokku_admin" \
+    || fail "default admin user is incorrect"
+MYSQL_ADMIN_USER=service_admin MYSQL_ADMIN_PASSWORD=service_password
+[ "$(mysql_admin_user)" = "service_admin" ] && [ "$(mysql_admin_password)" = "service_password" ] \
+    && mysql_admin_configured \
+    && pass "uses canonical admin credentials" \
+    || fail "canonical admin credentials were not resolved"
+unset MYSQL_ADMIN_USER MYSQL_ADMIN_PASSWORD
+MYSQL_ROOT_USER=legacy_admin MYSQL_ROOT_PASSWORD=legacy_password
+[ "$(mysql_admin_user)" = "legacy_admin" ] && [ "$(mysql_admin_password)" = "legacy_password" ] \
+    && pass "uses legacy root-named credentials as a compatibility fallback" \
+    || fail "legacy credential fallback is broken"
+unset MYSQL_ROOT_USER MYSQL_ROOT_PASSWORD
+MYSQL_ROOT_PASSWORD=legacy_password
+[ "$(mysql_admin_user)" = "root" ] && [ "$(mysql_admin_password)" = "legacy_password" ] \
+    && pass "preserves password-only legacy root configuration" \
+    || fail "password-only legacy root fallback is broken"
+
+echo ""
 echo "=== all lib.sh tests passed ==="

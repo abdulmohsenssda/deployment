@@ -67,7 +67,6 @@ fi
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/tenant-backups}"
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 
 TENANT="$(tenant_full_name "$TENANT_ARG")" || exit 1
 META="$BACKUP_DIR/${FROM_ID}.meta.json"
@@ -153,8 +152,8 @@ fi
 # Restore database: pipe the gunzipped dump into the tenant DB.
 if [ "$RESTORE_DB" -eq 1 ]; then
     local_db="tenant_${TENANT//-/_}"
-    if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-        err "MYSQL_ROOT_PASSWORD not configured — cannot restore database."
+    if ! mysql_admin_configured; then
+        err "MYSQL_ADMIN_PASSWORD not configured — cannot restore database."
         exit 1
     fi
     log "Restoring MySQL database '$local_db' ..."

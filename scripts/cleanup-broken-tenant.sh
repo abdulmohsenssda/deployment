@@ -73,8 +73,6 @@ fi
 STORAGE_ROOT="${STORAGE_ROOT:-/opt/tenant-data}"
 MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
-MYSQL_ROOT_USER="${MYSQL_ROOT_USER:-root}"
-MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
 MYSQL_MASTER_DB="${MYSQL_MASTER_DB:-zatca_master}"
 MYSQL_TENANT_HOST="${MYSQL_TENANT_HOST:-%}"
 DOKKU_CONTAINER="${DOKKU_CONTAINER:-dokku}"
@@ -240,8 +238,8 @@ BASH
 }
 
 drop_database() {
-    if [ -z "$MYSQL_ROOT_PASSWORD" ] || [ "$MYSQL_ROOT_PASSWORD" = "changeme" ]; then
-        warn "MYSQL_ROOT_PASSWORD not set; skipping tenant DB/user cleanup."
+    if ! mysql_admin_configured; then
+        warn "MYSQL_ADMIN_PASSWORD not set; skipping tenant DB/user cleanup."
         return 0
     fi
 

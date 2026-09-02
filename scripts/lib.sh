@@ -230,38 +230,69 @@ public_tenant_url() {
     public_url "${tenant}.${base_domain}"
 }
 
+# Resolve the control-plane MySQL account at call time. Helpers are sourced
+# before individual scripts load config.env, so this must not be cached here.
+# MYSQL_ROOT_* remains a compatibility fallback for existing installations;
+# the account is an admin/deployer account and is not required to be MySQL root.
+mysql_admin_user() {
+    if [ -n "${MYSQL_ADMIN_USER:-}" ]; then
+        printf '%s' "$MYSQL_ADMIN_USER"
+    elif [ -n "${MYSQL_ROOT_USER:-}" ]; then
+        printf '%s' "$MYSQL_ROOT_USER"
+    elif [ -n "${MYSQL_ROOT_PASSWORD:-}" ] && [ -z "${MYSQL_ADMIN_PASSWORD:-}" ]; then
+        # Old installs set only MYSQL_ROOT_PASSWORD and used root implicitly.
+        printf '%s' "root"
+    else
+        printf '%s' "dokku_admin"
+    fi
+}
+
+mysql_admin_password() {
+    printf '%s' "${MYSQL_ADMIN_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}"
+}
+
+mysql_admin_configured() {
+    local password
+    password="$(mysql_admin_password)"
+    [ -n "$password" ] && [ "$password" != "changeme" ]
+}
+
 # MySQL client (supports stdin/heredocs)
 run_mysql() {
-    local host
+    local host user password
     host="$(_resolve_mysql_host)"
+    user="$(mysql_admin_user)"
+    password="$(mysql_admin_password)"
     if [ "${DASHBOARD_ENV:-}" = "dev" ]; then
-        echo -e "${BLUE:-}[i]${NC:-} [dev-diag] run_mysql via=${_MYSQL_VIA} host=${host} port=${MYSQL_PORT:-3306} user=${MYSQL_ROOT_USER:-root} args=[$*]" >&2
+        echo -e "${BLUE:-}[i]${NC:-} [dev-diag] run_mysql via=${_MYSQL_VIA} host=${host} port=${MYSQL_PORT:-3306} user=${user} args=[$*]" >&2
     fi
     if [ "$_MYSQL_VIA" = "host" ]; then
-        MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-}" \
-            mysql --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_ROOT_USER:-root}" "$@"
+        MYSQL_PWD="$password" \
+            mysql --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "$user" "$@"
     else
         docker run --rm -i \
             --add-host=host.docker.internal:host-gateway \
-            -e "MYSQL_PWD=${MYSQL_ROOT_PASSWORD:-}" \
+            -e "MYSQL_PWD=${password}" \
             mysql:8.0 \
-            mysql --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_ROOT_USER:-root}" "$@"
+            mysql --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "$user" "$@"
     fi
 }
 
 # mysqldump (stdout flows to host for piping)
 run_mysqldump() {
-    local host
+    local host user password
     host="$(_resolve_mysql_host)"
+    user="$(mysql_admin_user)"
+    password="$(mysql_admin_password)"
     if [ "$_MYSQL_VIA" = "host" ]; then
-        MYSQL_PWD="${MYSQL_ROOT_PASSWORD:-}" \
-            mysqldump --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_ROOT_USER:-root}" "$@"
+        MYSQL_PWD="$password" \
+            mysqldump --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "$user" "$@"
     else
         docker run --rm \
             --add-host=host.docker.internal:host-gateway \
-            -e "MYSQL_PWD=${MYSQL_ROOT_PASSWORD:-}" \
+            -e "MYSQL_PWD=${password}" \
             mysql:8.0 \
-            mysqldump --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_ROOT_USER:-root}" "$@"
+            mysqldump --protocol=TCP -h "$host" -P "${MYSQL_PORT:-3306}" -u "$user" "$@"
     fi
 }
 

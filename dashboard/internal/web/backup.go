@@ -467,11 +467,8 @@ func (s *server) handleAccountingExport(w http.ResponseWriter, r *http.Request) 
 	dbName := "tenant_" + strings.ReplaceAll(tenant, "-", "_")
 	host := s.cfg.MySQLHost
 	port := s.cfg.MySQLPort
-	user := strings.TrimSpace(os.Getenv("MYSQL_ROOT_USER"))
-	if user == "" {
-		user = "root"
-	}
-	password := os.Getenv("MYSQL_ROOT_PASSWORD")
+	user := strings.TrimSpace(s.cfg.MySQLAdminUser)
+	password := s.cfg.MySQLAdminPassword
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&timeout=30s",
 		user, password, host, port, dbName)

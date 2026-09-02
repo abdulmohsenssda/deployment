@@ -40,7 +40,7 @@ else
 fi
 
 echo ""
-echo "=== install.env is sourced (so MYSQL_ROOT_PASSWORD is available) ==="
+echo "=== install.env is sourced (so MYSQL_ADMIN_PASSWORD is available) ==="
 if grep -qE 'INSTALL_ENV_FILE=.*install\.env' scripts/init-tenant-db.sh; then
     pass "install.env is sourced after config.env"
 else
@@ -52,7 +52,7 @@ echo ""
 echo "=== dry-run --seed-only prints correct URL ==="
 # Set up minimum env for the script to run --dry-run without touching anything
 export BASE_DOMAIN=test.example.com
-export MYSQL_ROOT_PASSWORD=stub
+export MYSQL_ADMIN_PASSWORD=stub
 export DOKKU_PORT=8080
 export BASEURL=/api/v2
 # Use a temp config file since --dry-run still requires --config or config.env
@@ -60,7 +60,7 @@ tmpcfg=$(mktemp)
 trap 'rm -f "$tmpcfg"' EXIT
 cat > "$tmpcfg" <<EOF
 BASE_DOMAIN=$BASE_DOMAIN
-MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
+MYSQL_ADMIN_PASSWORD=$MYSQL_ADMIN_PASSWORD
 DOKKU_PORT=$DOKKU_PORT
 BASEURL=$BASEURL
 EOF
@@ -77,6 +77,15 @@ else
     echo "$output"
     echo "--- end ---"
     fail "dry-run seed did not use /api/v2/register"
+fi
+
+echo ""
+echo "=== existing-tenant schema replay does not require admin credentials ==="
+if grep -qF 'tenant_db_credentials_configured' scripts/init-tenant-db.sh &&
+    grep -qF 'MYSQL_ADMIN_PASSWORD are only needed to create a missing tenant database' scripts/init-tenant-db.sh; then
+    pass "existing-tenant replay uses tenant DB credentials before admin credentials"
+else
+    fail "existing-tenant replay still requires admin credentials unconditionally"
 fi
 
 if echo "$output" | grep -qF "Would POST /api/register "; then
