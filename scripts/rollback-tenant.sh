@@ -149,6 +149,9 @@ if $ALL_TENANTS; then
 
     FAILED=0
     while IFS= read -r app; do
+        tenant="${app%${APP_SUFFIX}}"
+        log "Synchronizing tenant routing: ${tenant}.${BASE_DOMAIN:-<unset>}"
+        reconcile_tenant_routing "$tenant"
         if ! rollback_app "$app" "$ROLLBACK_IMAGE"; then
             FAILED=$((FAILED + 1))
         fi
@@ -164,6 +167,8 @@ if $ALL_TENANTS; then
 else
     # Rollback single tenant
     APP_NAME="${TENANT_NAME}${APP_SUFFIX}"
+    log "Synchronizing tenant routing: ${TENANT_NAME}.${BASE_DOMAIN:-<unset>}"
+    reconcile_tenant_routing "$TENANT_NAME"
     echo ""
     rollback_app "$APP_NAME" "$ROLLBACK_IMAGE"
     echo ""

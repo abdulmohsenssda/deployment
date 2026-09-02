@@ -183,6 +183,21 @@ if [ -z "$APPS" ]; then
 fi
 
 APP_COUNT=$(echo "$APPS" | wc -l)
+
+# Repair persisted tenant routing before pulling or deploying the image.
+# A failed pull/rebuild must not prevent an existing tenant from moving to the
+# configured BASE_DOMAIN.
+while IFS= read -r app; do
+    tenant="${app%${SUFFIX}}"
+    frontend_app="${tenant}-frontend"
+    if dokku apps:exists "$frontend_app" 2>/dev/null; then
+        log "Synchronizing tenant routing: ${tenant}.${BASE_DOMAIN}"
+        reconcile_tenant_routing "$tenant"
+    else
+        warn "${tenant}: frontend app not found; skipping routing reconciliation"
+    fi
+done <<< "$APPS"
+
 ensure_deploy_image_available "$IMAGE"
 
 log "Deploying ${IMAGE} to ${APP_COUNT} ${APP_TYPE} app(s)"

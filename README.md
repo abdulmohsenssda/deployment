@@ -15,11 +15,18 @@ Use `--plan` to see the underlying script before running it:
 # bash scripts/update-tenant.sh acme --restart
 ```
 
-After changing `BASE_DOMAIN`, run the tenant update to rewrite persisted
-Dokku domain/URL values. Repair all existing tenants with:
+After changing `BASE_DOMAIN`, tenant **Sync**, **Rebuild**, and fleet deployment
+rewrite persisted Dokku domain/URL values before image work starts. Repair all
+existing tenants in one pass with:
 
 ```bash
 sudo ./scripts/post-merge-cleanup.sh
+```
+
+For one tenant without changing its images:
+
+```bash
+sudo ./scripts/deployctl.sh tenant update hockun2 --routing-only
 ```
 
 **Two repos own their own build:**

@@ -12,14 +12,21 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 cat > "$tmpdir/docker" <<'STUB'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DOCKER_LOG:?}"
 case "$1" in
     ps)
         echo dokku
         ;;
+    pull)
+        exit 1
+        ;;
     exec)
-        printf '%s\n' "$*" >> "${DOCKER_LOG:?}"
         case "$*" in
             *" hostname"*) echo dokku-host ;;
+            *"domains:report old-frontend"*) echo old.example.com ;;
+            *"domains:report old-backend"*) echo old.example.com ;;
+            *"config:get old-frontend APP_DOMAIN"*) echo old.example.com ;;
+            *"config:get old-frontend API_URL"*) echo https://old.example.com/api ;;
             *" grep -q"*) exit 1 ;;
         esac
         ;;
@@ -49,5 +56,21 @@ grep -q 'APP_DOMAIN=old.example.com API_URL=https://old.example.com/api' "$DOCKE
     || fail "update did not refresh persisted frontend URLs"
 grep -q 'dokku ps:restart old-frontend' "$DOCKER_LOG" \
     || fail "update did not restart frontend after URL refresh"
+
+{
+    : > "$DOCKER_LOG"
+    if bash scripts/update-tenant.sh old \
+        --frontend-image repo/ifritah-web:broken \
+        --config "$tmpdir/config.env" >/dev/null 2>&1; then
+        fail "update unexpectedly succeeded after image pull failure"
+    fi
+}
+
+routing_line="$(grep -n 'dokku domains:add old-frontend old.example.com' "$DOCKER_LOG" | head -1 | cut -d: -f1)"
+pull_line="$(grep -n '^pull repo/ifritah-web:broken$' "$DOCKER_LOG" | head -1 | cut -d: -f1)"
+[ -n "$routing_line" ] || fail "routing was not repaired before failed image pull"
+[ -n "$pull_line" ] || fail "failed image pull was not recorded"
+[ "$routing_line" -lt "$pull_line" ] \
+    || fail "routing repair ran after image pull"
 
 pass "tenant update repairs persisted routing"

@@ -152,15 +152,16 @@ users.
 
 Any future tenant deploy via `update-tenant.sh` will:
 
+- Reconcile the tenant frontend domain, `APP_DOMAIN`, and `API_URL` with the
+  current `BASE_DOMAIN` before pulling images or running migrations. A failed
+  image/migration step cannot preserve the old public URL.
 - Pull both images.
 - Read `org.opencontainers.image.version` from each.
-- Abort with a clear error message if the labels disagree, before touching
-  any dokku config or container state.
+- Abort with a clear error message if the labels disagree, before swapping
+  either app to a mismatched image.
 - Re-apply every migration bundled in the backend image (idempotent), so a
   tenant DB that lags the current schema is auto-repaired before the new
   container is swapped in.
-- Reconcile the tenant frontend domain, `APP_DOMAIN`, and `API_URL` with the
-  current `BASE_DOMAIN`, so old tenants follow a base-domain change.
 
 Both checks can be bypassed (`--skip-drift-check`, `--skip-migrations`) for
 targeted rollback investigations, but both bypasses are loud (warning
@@ -168,11 +169,12 @@ banners on stdout and stderr).
 
 ## If `BASE_DOMAIN` changed
 
-`BASE_DOMAIN` controls new tenant values; it does not rewrite persisted Dokku
-settings by itself. Repair one tenant with:
+`BASE_DOMAIN` controls new tenant values, while Dokku keeps old domains/config
+persisted. Tenant **Sync**, **Rebuild**, and fleet sync now reconcile existing
+tenants before deployment. Repair one tenant without changing its images with:
 
 ```bash
-sudo ./scripts/update-tenant.sh hockun2 --config /opt/deployment/config.env
+sudo ./scripts/update-tenant.sh hockun2 --routing-only --config /opt/deployment/config.env
 ```
 
 Repair every tenant with:

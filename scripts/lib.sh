@@ -230,6 +230,65 @@ public_tenant_url() {
     public_url "${tenant}.${base_domain}"
 }
 
+# Reconcile Dokku's persisted public routing for one tenant.
+#
+# Dokku stores domains and config independently from BASE_DOMAIN. Callers that
+# may deploy or rebuild an app should run this before doing so, so a later
+# image or migration failure cannot leave the tenant on its old public URL.
+# ROUTING_RESTARTED is set for callers that need to avoid a duplicate restart.
+reconcile_tenant_routing() {
+    local tenant="${1:-}"
+    local restart_mode="${2:-on-change}"
+    local tenant_domain public_url_value backend_app frontend_app
+    local frontend_domains backend_domains app_domain api_url
+    local frontend_domain_present=false
+    local routing_changed=false
+
+    [ -n "$tenant" ] || {
+        echo "Tenant name is required for routing reconciliation." >&2
+        return 1
+    }
+
+    tenant="$(tenant_full_name "$tenant")" || return 1
+    tenant_domain="${tenant}.${BASE_DOMAIN:?BASE_DOMAIN not set}"
+    public_url_value="$(public_tenant_url "$tenant")" || return 1
+    backend_app="${tenant}-backend"
+    frontend_app="${tenant}-frontend"
+    ROUTING_RESTARTED=false
+
+    frontend_domains="$(dokku domains:report "$frontend_app" --domains-app-vhosts 2>/dev/null || true)"
+    backend_domains="$(dokku domains:report "$backend_app" --domains-app-vhosts 2>/dev/null || true)"
+    app_domain="$(dokku config:get "$frontend_app" APP_DOMAIN 2>/dev/null || true)"
+    api_url="$(dokku config:get "$frontend_app" API_URL 2>/dev/null || true)"
+
+    local domain
+    for domain in $frontend_domains; do
+        if [ "$domain" = "$tenant_domain" ]; then
+            frontend_domain_present=true
+            break
+        fi
+    done
+    if ! $frontend_domain_present || [ "$app_domain" != "$tenant_domain" ] ||
+        [ "$api_url" != "${public_url_value}/api" ] ||
+        [ -n "$(printf '%s' "$backend_domains" | tr -d '[:space:]')" ]; then
+        routing_changed=true
+    fi
+
+    # Backend stays internal-only; frontend owns the public hostname.
+    dokku domains:clear "$backend_app" >/dev/null || true
+    dokku proxy:disable "$backend_app" >/dev/null 2>&1 || true
+    dokku domains:clear "$frontend_app" >/dev/null
+    dokku domains:add "$frontend_app" "$tenant_domain" >/dev/null
+    dokku config:set --no-restart "$frontend_app" \
+        APP_DOMAIN="$tenant_domain" \
+        API_URL="${public_url_value}/api"
+
+    if [ "$routing_changed" = true ] && [ "$restart_mode" != "no-restart" ]; then
+        dokku ps:restart "$frontend_app"
+        ROUTING_RESTARTED=true
+    fi
+}
+
 # Resolve the control-plane MySQL account at call time. Helpers are sourced
 # before individual scripts load config.env, so this must not be cached here.
 # MYSQL_ROOT_* remains a compatibility fallback for existing installations;

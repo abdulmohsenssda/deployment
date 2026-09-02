@@ -404,19 +404,49 @@ func (s *server) handleTenantAction(w http.ResponseWriter, r *http.Request) {
 	s.recordActivity(activity, fmt.Sprintf("--- %s %s @ %s ---", verb, tenant, time.Now().UTC().Format(time.RFC3339)))
 	failed := false
 	var body strings.Builder
-	for _, app := range apps {
-		out, err := s.dokku.Action(ctx, app.Name, verb)
-		if err != nil {
-			failed = true
-			s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, app.Name))
-			s.recordActivityBlock(activity, out)
-			s.recordActivity(activity, err.Error())
-			fmt.Fprintf(&body, "FAILED %s %s\n%s\n%v\n", verb, app.Name, out, err)
-			continue
+
+	// Lifecycle actions reuse Dokku's persisted config. Synchronize routing
+	// first so rebuild/restart/start cannot preserve a stale tenant URL.
+	// Stopping does not need a restart and will reconcile on the next start.
+	if verb != "stop" {
+		s.recordActivity(activity, "Synchronizing tenant routing before lifecycle action...")
+		var routingLines []string
+		var routeErr error
+		if s.runner == nil {
+			routeErr = fmt.Errorf("script runner is not configured")
+		} else {
+			routeErr = s.runner.RunWithCallback(ctx, io.Discard, "update-tenant.sh",
+				[]string{tenant, "--routing-only"}, func(line string) {
+					routingLines = append(routingLines, line)
+					s.recordActivity(activity, line)
+				})
 		}
-		s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, app.Name))
-		s.recordActivityBlock(activity, out)
-		fmt.Fprintf(&body, "OK %s %s\n%s\n", verb, app.Name, out)
+		for _, line := range routingLines {
+			fmt.Fprintf(&body, "%s\n", line)
+		}
+		if routeErr != nil {
+			failed = true
+			s.recordActivity(activity, "FAILED tenant routing synchronization")
+			s.recordActivity(activity, routeErr.Error())
+			fmt.Fprintf(&body, "FAILED tenant routing synchronization\n%v\n", routeErr)
+		}
+	}
+
+	if !failed {
+		for _, app := range apps {
+			out, err := s.dokku.Action(ctx, app.Name, verb)
+			if err != nil {
+				failed = true
+				s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, app.Name))
+				s.recordActivityBlock(activity, out)
+				s.recordActivity(activity, err.Error())
+				fmt.Fprintf(&body, "FAILED %s %s\n%s\n%v\n", verb, app.Name, out, err)
+				continue
+			}
+			s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, app.Name))
+			s.recordActivityBlock(activity, out)
+			fmt.Fprintf(&body, "OK %s %s\n%s\n", verb, app.Name, out)
+		}
 	}
 	if failed {
 		s.recordActivity(activity, "--- action failed ---")
