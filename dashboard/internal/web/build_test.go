@@ -62,6 +62,13 @@ func TestBuildInfoEndpointIsPublicAndStable(t *testing.T) {
 	t.Cleanup(func() {
 		buildinfo.Version, buildinfo.Commit = oldVersion, oldCommit
 	})
+	for _, name := range []string{
+		"APP_IMAGE_VERSION", "APP_IMAGE_COMMIT", "APP_IMAGE_CHANNEL",
+		"APP_IMAGE_TAG", "APP_IMAGE_REF", "APP_IMAGE_DIGEST",
+		"APP_WORKFLOW_RUN_ID", "APP_WORKFLOW_RUN_URL", "APP_BUILT_AT",
+	} {
+		t.Setenv(name, "")
+	}
 	buildinfo.Version = "main"
 	buildinfo.Commit = "0123456789abcdef"
 
@@ -79,6 +86,9 @@ func TestBuildInfoEndpointIsPublicAndStable(t *testing.T) {
 	}
 	if got.Service != "dokku-dashboard" || got.Version != "main" || got.Commit != "0123456789abcdef" {
 		t.Fatalf("GET /version = %+v", got)
+	}
+	if got.Channel != "dev" || got.CommitShort != "0123456" {
+		t.Fatalf("GET /version omitted canonical build identity: %+v", got)
 	}
 	if got.AssetDigest == "" || got.Assets["app.js"] == "" || got.Templates["app.html"] == "" {
 		t.Fatalf("GET /version omitted asset identity: %+v", got)

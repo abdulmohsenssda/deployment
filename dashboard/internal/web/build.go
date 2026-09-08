@@ -334,13 +334,23 @@ func (f structFS) Open(name string) (fs.File, error) {
 }
 
 type buildResponse struct {
-	Service     string            `json:"service"`
-	Version     string            `json:"version"`
-	Commit      string            `json:"commit"`
-	Build       string            `json:"build"`
-	AssetDigest string            `json:"asset_digest"`
-	Assets      map[string]string `json:"assets"`
-	Templates   map[string]string `json:"templates"`
+	Service        string            `json:"service"`
+	Version        string            `json:"version"`
+	Commit         string            `json:"commit"`
+	CommitShort    string            `json:"commit_short,omitempty"`
+	Channel        string            `json:"channel,omitempty"`
+	Tag            string            `json:"tag,omitempty"`
+	Ref            string            `json:"ref,omitempty"`
+	ImageRef       string            `json:"image_ref,omitempty"`
+	Digest         string            `json:"digest,omitempty"`
+	WorkflowRunID  string            `json:"workflow_run_id,omitempty"`
+	WorkflowRunURL string            `json:"workflow_run_url,omitempty"`
+	Source         string            `json:"source,omitempty"`
+	BuiltAt        string            `json:"built_at,omitempty"`
+	Build          string            `json:"build"`
+	AssetDigest    string            `json:"asset_digest"`
+	Assets         map[string]string `json:"assets"`
+	Templates      map[string]string `json:"templates"`
 }
 
 func currentBuildResponse() buildResponse {
@@ -348,20 +358,40 @@ func currentBuildResponse() buildResponse {
 	manifest, err := embeddedAssetManifest()
 	if err != nil {
 		return buildResponse{
-			Service: "dokku-dashboard",
-			Version: info.Version,
-			Commit:  info.Commit,
-			Build:   info.String(),
+			Service:        "dokku-dashboard",
+			Version:        info.Version,
+			Commit:         info.Commit,
+			Build:          info.String(),
+			Channel:        info.Channel,
+			Tag:            info.Tag,
+			Ref:            info.Ref,
+			ImageRef:       info.ImageRef,
+			Digest:         info.Digest,
+			CommitShort:    info.CommitShort,
+			WorkflowRunID:  info.WorkflowRunID,
+			WorkflowRunURL: info.WorkflowRunURL,
+			Source:         info.Source,
+			BuiltAt:        info.BuiltAt,
 		}
 	}
 	return buildResponse{
-		Service:     "dokku-dashboard",
-		Version:     info.Version,
-		Commit:      info.Commit,
-		Build:       info.String(),
-		AssetDigest: manifest.Digest,
-		Assets:      manifest.Files,
-		Templates:   manifest.Templates,
+		Service:        "dokku-dashboard",
+		Version:        info.Version,
+		Commit:         info.Commit,
+		CommitShort:    info.CommitShort,
+		Channel:        info.Channel,
+		Tag:            info.Tag,
+		Ref:            info.Ref,
+		ImageRef:       info.ImageRef,
+		Digest:         info.Digest,
+		WorkflowRunID:  info.WorkflowRunID,
+		WorkflowRunURL: info.WorkflowRunURL,
+		Source:         info.Source,
+		BuiltAt:        info.BuiltAt,
+		Build:          info.String(),
+		AssetDigest:    manifest.Digest,
+		Assets:         manifest.Files,
+		Templates:      manifest.Templates,
 	}
 }
 

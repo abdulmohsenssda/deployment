@@ -151,6 +151,67 @@ func TestHandleScriptRunRejectsIncompatibleTagBeforeRunner(t *testing.T) {
 	}
 }
 
+func TestNormalizeComponentSelectionQueriesOnlySelectedRepository(t *testing.T) {
+	t.Setenv("BACKEND_IMAGE", "example/api")
+	t.Setenv("FRONTEND_IMAGE", "example/web")
+	var queried []string
+	s := &server{
+		imageTagsByRepo: func(_ context.Context, repo string) (map[string]bool, error) {
+			queried = append(queried, repo)
+			return map[string]bool{"dev": true}, nil
+		},
+	}
+	sc := scripts.Find("deploy-all.sh")
+	if sc == nil {
+		t.Fatal("deploy-all.sh not in catalog")
+	}
+	if _, err := s.normalizeImageSelection(t.Context(), sc, url.Values{
+		"image_version": {"dev"},
+		"type":          {"backend"},
+	}); err != nil {
+		t.Fatalf("normalize backend selection: %v", err)
+	}
+	if len(queried) != 1 || queried[0] != "example/api" {
+		t.Fatalf("queried repositories = %v, want [example/api]", queried)
+	}
+}
+
+func TestHandleScriptRunRejectsMissingExactTagBeforeRunner(t *testing.T) {
+	t.Setenv("BACKEND_IMAGE", "example/api")
+	t.Setenv("FRONTEND_IMAGE", "example/web")
+	s := &server{
+		imageTags: func(_ context.Context, _, _ string) (map[string]bool, map[string]bool, error) {
+			return map[string]bool{"dev": true}, map[string]bool{"dev": true}, nil
+		},
+		imageTagExists: func(_ context.Context, repo, tag string) (bool, error) {
+			return repo == "example/api" && tag == "dev", nil
+		},
+	}
+	r := chi.NewRouter()
+	r.Post("/scripts/{name}/run", s.handleScriptRun)
+	form := url.Values{
+		"_pos_name":              {"demo"},
+		"admin_user":             {"admin"},
+		"admin_password":         {"password"},
+		"company_name":           {"ACME"},
+		"image_version":          {"dev"},
+		"backend_image_version":  {"dev"},
+		"frontend_image_version": {"dev"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/scripts/create-tenant/run",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "frontend") || !strings.Contains(rr.Body.String(), "dev") {
+		t.Fatalf("response = %q, want exact frontend tag failure", rr.Body.String())
+	}
+}
+
 func TestImageVersionFieldsDeclareCompatibilityScope(t *testing.T) {
 	cases := map[string]string{
 		"create-tenant.sh":    "both",

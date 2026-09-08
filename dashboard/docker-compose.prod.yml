@@ -32,6 +32,8 @@ services:
       BACKUP_DIR: ${BACKUP_DIR:-/opt/tenant-backups}
       STORAGE_ROOT: ${STORAGE_ROOT:-/opt/tenant-data}
       DOCKERHUB_USERNAME: ${DOCKERHUB_USERNAME:-}
+      APP_IMAGE_REF: ${DASHBOARD_IMAGE_REF:-}
+      APP_IMAGE_DIGEST: ${DASHBOARD_IMAGE_DIGEST:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./dashboard.env:/app/dashboard.env

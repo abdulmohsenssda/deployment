@@ -283,9 +283,12 @@ dokku letsencrypt:enable admin-prod
 
 ## Build identity
 
-Published dashboard images embed a non-secret version and commit identity in
-the binary. The image workflow passes `BUILD_VERSION` and `BUILD_COMMIT`,
-publishes matching OCI labels, and runs dashboard tests before publication.
-Operators can inspect the identity at `/version` or in the dashboard footer;
-`/healthz` keeps its plain `ok` response and adds the same identity in headers.
-The `/version` asset digest covers both embedded templates and static assets.
+Published dashboard images carry separate channel, Docker tag, semantic
+version, image reference, commit, workflow, and build-time fields. The image
+workflow publishes `latest`, `prod`, and immutable short/full commit tags,
+then verifies the published manifest and OCI labels before it succeeds.
+Operators can inspect the identity at `/version` or `/api/build-info`.
+`/healthz` keeps its plain `ok` response and adds the version and commit in
+headers. The deployment startup script resolves the pulled manifest digest
+and passes it to the running container, so the dashboard can be traced from
+the selected tag to the exact image.
