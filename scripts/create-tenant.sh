@@ -381,13 +381,13 @@ fi
 deploy_verified_component() {
     local component="$1" image="$2" app="${TENANT_NAME}-${1}"
     local values="${COMPONENT_IDENTITY[$component]}"
-    local channel version commit_sha commit_short workflow image_ref digest built_at
+    local channel version commit_sha commit_short workflow workflow_url image_ref digest built_at
     local resolved_ref=""
-    IFS=$'\t' read -r channel version commit_sha commit_short workflow image_ref digest built_at <<< "$values"
+    IFS=$'\t' read -r channel version commit_sha commit_short workflow workflow_url image_ref digest built_at <<< "$values"
     resolved_ref="${image%@*}@${digest}"
 
     if ! tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
-        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
         "" "" "started" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT"; then
         error "${app}: deployment audit is unavailable; refusing an untracked swap"
         return 1
@@ -398,19 +398,25 @@ deploy_verified_component() {
         APP_COMMIT="$commit_sha" \
         APP_COMMIT_SHORT="$commit_short" \
         APP_BUILD_CHANNEL="$channel" \
+        APP_IMAGE_CHANNEL="$channel" \
         APP_BUILD_WORKFLOW_RUN="$workflow" \
         APP_WORKFLOW_RUN="$workflow" \
+        APP_WORKFLOW_RUN_ID="$workflow" \
+        APP_WORKFLOW_RUN_URL="$workflow_url" \
         APP_BUILT_AT="$built_at" \
         APP_BUILD_AT="$built_at" \
-        APP_IMAGE_VERSION="$(image_tag "$image")" \
-        APP_IMAGE_REF="$image" \
+        APP_IMAGE_VERSION="$version" \
+        APP_IMAGE_TAG="$(image_tag "$image")" \
+        APP_IMAGE_COMMIT="$commit_sha" \
+        APP_IMAGE_COMMIT_SHORT="$commit_short" \
+        APP_IMAGE_REF="$image_ref" \
         APP_IMAGE_DIGEST="$digest" \
         APP_IMAGE_RESOLVED_REF="$resolved_ref"
 
     if ! dokku_git_from_image "$app" "$image"; then
         tenant_record_failure "$TENANT_NAME" "$component" "image swap failed" 2>/dev/null || true
         tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
-            "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+            "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
             "" "" "failed" "image swap failed" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null || true
         return 1
     fi
@@ -418,7 +424,7 @@ deploy_verified_component() {
     local attempt
     for ((attempt=1; attempt<=VERIFY_RETRIES; attempt++)); do
         if verify_runtime_identity "$app" "$version" "$commit_sha" "$digest" \
-            "$image_ref" "$channel" "$workflow" "$built_at"; then
+            "$image_ref" "$channel" "$workflow" "$workflow_url" "$built_at"; then
             break
         fi
         if [ "$attempt" -eq "$VERIFY_RETRIES" ]; then
@@ -427,7 +433,7 @@ deploy_verified_component() {
             tenant_record_failure "$TENANT_NAME" "$component" \
                 "post-deploy /version identity verification failed" 2>/dev/null || true
             tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
-                "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+                "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
                 "" "" "failed" "post-deploy /version identity verification failed" \
                 "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null || true
             return 1
@@ -437,14 +443,14 @@ deploy_verified_component() {
 
     if ! tenant_record_identity "$TENANT_NAME" "$component" "$image" "$image_ref" \
         "$digest" "$channel" "$version" "$commit_sha" "$commit_short" \
-        "$workflow" "$built_at"; then
+        "$workflow" "$workflow_url" "$built_at"; then
         error "${app}: failed to persist verified deployment identity"
         tenant_record_failure "$TENANT_NAME" "$component" \
             "failed to persist verified deployment identity" 2>/dev/null || true
         return 1
     fi
     tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
-        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
         "" "" "verified" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" || return 1
 }
 

@@ -41,8 +41,9 @@ func TestCurrentLoadsRuntimeImageIdentity(t *testing.T) {
 	t.Setenv("APP_BUILT_AT", "2026-01-01T00:00:00Z")
 
 	got := Current()
-	if got.Version != "v1.2.3" || got.Commit != "0123456789abcdef" ||
-		got.CommitShort != "0123456" || got.Channel != "production" ||
+	if got.Version != "v1.2.3" || got.SemanticVersion != "v1.2.3" ||
+		got.Commit != "0123456789abcdef" ||
+		got.ShortCommit != "0123456" || got.CommitShort != "0123456" || got.Channel != "production" ||
 		got.Tag != "prod" || got.Ref != "ssdawweq/dokku-dashboard:prod" ||
 		got.ImageRef != got.Ref || got.Digest != "sha256:abcdef" ||
 		got.WorkflowRunID != "12345" || got.WorkflowRunURL == "" ||

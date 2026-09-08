@@ -217,6 +217,8 @@ type appAPI struct {
 	LifecycleError         string              `json:"lifecycle_error"`
 	Image                  string              `json:"image"`
 	Version                string              `json:"version"`
+	SemanticVersion        string              `json:"semantic_version"`
+	Tag                    string              `json:"tag"`
 	HTTPCode               string              `json:"http"`
 	ProbeStatus            string              `json:"probe_status"`
 	ProbeCheckedAt         string              `json:"probe_checked_at"`
@@ -291,6 +293,8 @@ func appAPIFrom(app dokku.App) appAPI {
 		ImageDigest:            app.ImageDigest,
 		ResolvedDigest:         app.ResolvedDigest,
 		Version:                app.Version,
+		SemanticVersion:        app.SemanticVersion,
+		Tag:                    app.Tag,
 		Channel:                app.Channel,
 		SourceCommit:           app.SourceCommit,
 		DeployedAt:             app.DeployedAt,

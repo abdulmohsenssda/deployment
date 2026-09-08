@@ -125,6 +125,12 @@ grep -q 'APP_WORKFLOW_RUN_ID=' scripts/update-tenant.sh \
     || fail "APP_WORKFLOW_RUN_ID runtime identity missing"
 grep -q 'frontend' scripts/update-tenant.sh \
     || fail "component-only frontend update path missing"
+grep -q 'IFS=.*workflow_url.*image_ref' scripts/create-tenant.sh \
+    || fail "create-tenant must preserve workflow URL and image ref field order"
+grep -q 'APP_IMAGE_VERSION="\$version"' scripts/create-tenant.sh \
+    || fail "create-tenant must keep semantic version separate from Docker tag"
+grep -q 'APP_IMAGE_TAG=' scripts/create-tenant.sh \
+    || fail "create-tenant must persist the Docker tag separately"
 ! grep -R -q '/api/health' scripts/*.sh templates REQUIREMENTS.md \
     || fail "legacy /api/health deployment probe remains"
 [ "$(grep -c '"workflow_run_id":"%s"' scripts/status.sh)" -eq 1 ] \

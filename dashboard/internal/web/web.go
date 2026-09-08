@@ -386,12 +386,12 @@ func backupRetentionDays(days int) int {
 // fleet default. When neither app reports a version it falls back to def.
 func tenantSyncVersion(backend, frontend *dokku.App, def string) string {
 	if backend != nil {
-		if v := strings.TrimSpace(backend.Version); v != "" {
+		if v := strings.TrimSpace(backend.Tag); v != "" {
 			return v
 		}
 	}
 	if frontend != nil {
-		if v := strings.TrimSpace(frontend.Version); v != "" {
+		if v := strings.TrimSpace(frontend.Tag); v != "" {
 			return v
 		}
 	}

@@ -25,7 +25,7 @@
     <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
     <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
     <div class="rc-meta">{{probeMessage .Probe}}</div>
-    <div class="rc-meta">channel {{or .Channel .Version "—"}} · version {{or .Version "—"}}</div>
+    <div class="rc-meta">channel {{or .Channel "—"}} · tag {{or .Tag "—"}} · version {{or .SemanticVersion .Version "—"}}</div>
     <div class="rc-meta">ref {{or .ImageRef .Image "—"}}</div>
     <div class="rc-meta">digest {{or .ResolvedDigest "—"}} · commit {{or .SourceCommit "—"}}</div>
     <div class="rc-meta">deployed {{or .DeployedAt "—"}} · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}} · port {{or .IntPort "—"}}</div>
@@ -57,7 +57,7 @@
     <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
     <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
     <div class="rc-meta">{{probeMessage .Probe}}</div>
-    <div class="rc-meta">channel {{or .Channel .Version "—"}} · version {{or .Version "—"}}</div>
+    <div class="rc-meta">channel {{or .Channel "—"}} · tag {{or .Tag "—"}} · version {{or .SemanticVersion .Version "—"}}</div>
     <div class="rc-meta">ref {{or .ImageRef .Image "—"}}</div>
     <div class="rc-meta">digest {{or .ResolvedDigest "—"}} · commit {{or .SourceCommit "—"}}</div>
     <div class="rc-meta">deployed {{or .DeployedAt "—"}} · {{join .Domains " · "}}</div>

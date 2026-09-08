@@ -17,18 +17,20 @@ var (
 
 // Info is the public build identity returned by the dashboard.
 type Info struct {
-	Version        string `json:"version"`
-	Commit         string `json:"commit"`
-	CommitShort    string `json:"commit_short,omitempty"`
-	Channel        string `json:"channel,omitempty"`
-	Tag            string `json:"tag,omitempty"`
-	Ref            string `json:"ref,omitempty"`
-	ImageRef       string `json:"image_ref,omitempty"`
-	Digest         string `json:"digest,omitempty"`
-	WorkflowRunID  string `json:"workflow_run_id,omitempty"`
-	WorkflowRunURL string `json:"workflow_run_url,omitempty"`
-	Source         string `json:"source,omitempty"`
-	BuiltAt        string `json:"built_at,omitempty"`
+	Version         string `json:"version"`
+	SemanticVersion string `json:"semantic_version"`
+	Commit          string `json:"commit"`
+	ShortCommit     string `json:"short_commit,omitempty"`
+	CommitShort     string `json:"commit_short,omitempty"`
+	Channel         string `json:"channel,omitempty"`
+	Tag             string `json:"tag,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	ImageRef        string `json:"image_ref,omitempty"`
+	Digest          string `json:"digest,omitempty"`
+	WorkflowRunID   string `json:"workflow_run_id,omitempty"`
+	WorkflowRunURL  string `json:"workflow_run_url,omitempty"`
+	Source          string `json:"source,omitempty"`
+	BuiltAt         string `json:"built_at,omitempty"`
 }
 
 // Current returns a sanitized copy of the embedded build identity. Build
@@ -45,19 +47,22 @@ func Current() Info {
 	if shortCommit == "" && len(commit) >= 7 && commit != "unknown" {
 		shortCommit = commit[:7]
 	}
+	version := publicValue(firstOrDefault("APP_IMAGE_VERSION", "APP_VERSION", Version), "dev")
 	return Info{
-		Version:        publicValue(firstOrDefault("APP_IMAGE_VERSION", "APP_VERSION", Version), "dev"),
-		Commit:         commit,
-		CommitShort:    shortCommit,
-		Channel:        publicValue(firstEnv("APP_IMAGE_CHANNEL", "APP_BUILD_CHANNEL"), "dev"),
-		Tag:            tag,
-		Ref:            ref,
-		ImageRef:       ref,
-		Digest:         metadataValue(firstEnv("APP_IMAGE_DIGEST", "APP_IMAGE_RESOLVED_DIGEST"), ""),
-		WorkflowRunID:  publicValue(firstEnv("APP_WORKFLOW_RUN_ID", "APP_BUILD_WORKFLOW_RUN", "APP_WORKFLOW_RUN"), ""),
-		WorkflowRunURL: metadataValue(firstEnv("APP_WORKFLOW_RUN_URL"), ""),
-		Source:         metadataValue(firstEnv("APP_SOURCE", "APP_IMAGE_SOURCE"), ""),
-		BuiltAt:        metadataValue(firstEnv("APP_BUILT_AT", "APP_BUILD_AT", "APP_CREATED"), ""),
+		Version:         version,
+		SemanticVersion: version,
+		Commit:          commit,
+		ShortCommit:     shortCommit,
+		CommitShort:     shortCommit,
+		Channel:         publicValue(firstEnv("APP_IMAGE_CHANNEL", "APP_BUILD_CHANNEL"), "dev"),
+		Tag:             tag,
+		Ref:             ref,
+		ImageRef:        ref,
+		Digest:          metadataValue(firstEnv("APP_IMAGE_DIGEST", "APP_IMAGE_RESOLVED_DIGEST"), ""),
+		WorkflowRunID:   publicValue(firstEnv("APP_WORKFLOW_RUN_ID", "APP_BUILD_WORKFLOW_RUN", "APP_WORKFLOW_RUN"), ""),
+		WorkflowRunURL:  metadataValue(firstEnv("APP_WORKFLOW_RUN_URL"), ""),
+		Source:          metadataValue(firstEnv("APP_SOURCE", "APP_IMAGE_SOURCE"), ""),
+		BuiltAt:         metadataValue(firstEnv("APP_BUILT_AT", "APP_BUILD_AT", "APP_CREATED"), ""),
 	}
 }
 
