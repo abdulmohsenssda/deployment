@@ -1,10 +1,11 @@
 name: Linux release gate
 
 on:
+  # `branches` selects the PR base branch, not the contributor's head branch.
   pull_request:
-    branches: [sprint/deployment-provenance-deployment]
+    branches: [main]
   push:
-    branches: [sprint/deployment-provenance-deployment]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
