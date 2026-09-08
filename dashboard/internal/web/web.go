@@ -52,6 +52,14 @@ type server struct {
 	tenantState *tenantstate.Store
 	imageTags   imageTagSetLookup
 	authMu      sync.RWMutex
+	operationMu sync.RWMutex
+	operations  map[string]operationStatus
+}
+
+type operationStatus struct {
+	Name    string
+	At      time.Time
+	Failure string
 }
 
 // Router builds the HTTP handler.
@@ -79,7 +87,7 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		SameSite: http.SameSiteLaxMode,
 	}
 
-	s := &server{cfg: cfg, dokku: d, logs: l, runner: runner, pages: pages, store: store}
+	s := &server{cfg: cfg, dokku: d, logs: l, runner: runner, pages: pages, store: store, operations: map[string]operationStatus{}}
 	s.tenantState = tenantstate.NewStore(cfg.TenantStateDir)
 	s.snapshots = newSnapshotCache(60*time.Second, s.collectSnapshot)
 	s.snapshots.Start(context.Background())
@@ -119,7 +127,9 @@ func Router(cfg config.Config, d *dokku.Client, l *logbuf.Store, runner *scripts
 		r.Get("/api/apps/{name}/activity", s.handleAppActivity)
 		r.Get("/api/tenants/{name}/activity", s.handleTenantActivity)
 		r.Get("/api/scripts/{name}/activity", s.handleScriptActivity)
+		r.Get("/api/status", s.handleAPIStatus)
 		r.Get("/api/image-tags", s.handleImageTags)
+		r.Get("/api/releases", s.handleAPIReleases)
 		r.Get("/events", s.handleEvents)
 		r.Get("/settings/password", s.handlePasswordPage)
 		r.Post("/settings/password", s.handlePasswordSubmit)
@@ -341,6 +351,7 @@ func (s *server) handleTenant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	autoRedeploy := s.tenantState.IsAutoRedeployEnabled(name)
+	snapshot, _ := s.snapshots.Snapshot()
 	s.render(w, "tenant.html", map[string]any{
 		"Env":                 s.cfg.EnvName,
 		"Base":                s.cfg.BaseDomain,
@@ -354,6 +365,7 @@ func (s *server) handleTenant(w http.ResponseWriter, r *http.Request) {
 		"AutoRedeploy":        autoRedeploy,
 		"BackupRetentionDays": backupRetentionDays(s.cfg.BackupRetentionDays),
 		"MaxUserBackups":      50,
+		"Snapshot":            snapshot,
 	})
 }
 
@@ -440,11 +452,13 @@ func (s *server) handleTenantAction(w http.ResponseWriter, r *http.Request) {
 				s.recordActivity(activity, fmt.Sprintf("FAILED %s %s", verb, app.Name))
 				s.recordActivityBlock(activity, out)
 				s.recordActivity(activity, err.Error())
+				s.recordOperation(app.Name, verb, err)
 				fmt.Fprintf(&body, "FAILED %s %s\n%s\n%v\n", verb, app.Name, out, err)
 				continue
 			}
 			s.recordActivity(activity, fmt.Sprintf("OK %s %s", verb, app.Name))
 			s.recordActivityBlock(activity, out)
+			s.recordOperation(app.Name, verb, nil)
 			fmt.Fprintf(&body, "OK %s %s\n%s\n", verb, app.Name, out)
 		}
 	}
@@ -533,6 +547,7 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 		s.recordActivityBlock(activity, out)
 		s.recordActivity(activity, "--- action complete ---")
 	}
+	s.recordOperation(name, verb, err)
 	s.snapshots.RefreshSoon()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if err != nil {
@@ -594,6 +609,26 @@ func (s *server) handleAPIApps(w http.ResponseWriter, r *http.Request) {
 	snap, _ := s.snapshots.Snapshot()
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, appsJSON(snap.Apps))
+}
+
+func (s *server) handleAPIStatus(w http.ResponseWriter, _ *http.Request) {
+	snap, _ := s.snapshots.Snapshot()
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, snapshotJSON(snap))
+}
+
+func (s *server) handleAPIReleases(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"schema_version": scripts.ReleaseManifestSchemaVersion,
+		"releases":       scripts.ReleaseCatalog(),
+		"default":        scripts.DefaultImageVersion(),
+		"default_components": map[string]string{
+			"channel":  scripts.DefaultImageVersion(),
+			"backend":  scripts.BackendRepo() + ":" + scripts.DefaultImageVersion(),
+			"frontend": scripts.FrontendRepo() + ":" + scripts.DefaultImageVersion(),
+		},
+	})
 }
 
 // handleImageTags returns available image tags from Docker Hub for autocomplete.
@@ -1015,11 +1050,33 @@ func buildReleaseViews(catalog []scripts.ImageVersion, apps []dokku.App) []relea
 	}
 	for _, app := range apps {
 		tag := strings.TrimSpace(app.Version)
-		if !scripts.IsImageVersionTag(tag) {
-			continue
+		var view *releaseView
+		for _, candidateTag := range order {
+			candidate := byTag[candidateTag]
+			if candidate == nil {
+				continue
+			}
+			switch app.Role {
+			case "backend":
+				if tag == candidate.BackendVersion || app.Image == candidate.BackendImage {
+					view = candidate
+				}
+			case "frontend":
+				if tag == candidate.FrontendVersion || app.Image == candidate.FrontendImage {
+					view = candidate
+				}
+			}
+			if view != nil {
+				break
+			}
 		}
-		view := byTag[tag]
+		if view == nil && scripts.IsImageVersionTag(tag) {
+			view = byTag[tag]
+		}
 		if view == nil {
+			if !scripts.IsImageVersionTag(tag) {
+				continue
+			}
 			view = add(scripts.ImageVersion{Tag: tag, Status: "deployed", Title: tag})
 		}
 		if view == nil {
@@ -1040,6 +1097,12 @@ func buildReleaseViews(catalog []scripts.ImageVersion, apps []dokku.App) []relea
 			view.Failed++
 			if view.FailureSummary == "" {
 				view.FailureSummary = app.Name + " is " + app.State
+			}
+		}
+		if app.Identity.Status != "verified" {
+			view.Failed++
+			if view.FailureSummary == "" {
+				view.FailureSummary = app.Name + " has unverified build provenance"
 			}
 		}
 	}
@@ -1117,6 +1180,10 @@ func (s *server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
 	runErr := s.runner.RunWithCallback(ctx, w, sc.Name, argv, func(line string) {
 		s.recordActivities(activityKeys, line)
 	})
+	if tenant := strings.TrimSpace(r.PostForm.Get("_pos_name")); tenant != "" {
+		s.recordOperation(tenant+"-backend", sc.Slug(), runErr)
+		s.recordOperation(tenant+"-frontend", sc.Slug(), runErr)
+	}
 	if runErr != nil {
 		s.recordActivities(activityKeys, "ERROR: "+runErr.Error())
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", runErr.Error())
@@ -1501,29 +1568,23 @@ func buildArgv(sc *scripts.Script, form url.Values) ([]string, error) {
 }
 
 func expandImageVersion(sc *scripts.Script, form url.Values) (url.Values, error) {
-	version := strings.TrimSpace(form.Get("image_version"))
-	if version == "" {
-		version = defaultFieldValue(sc, "image_version")
+	shared := strings.TrimSpace(form.Get("image_version"))
+	if shared == "" {
+		shared = defaultFieldValue(sc, "image_version")
 	}
-	if version == "" {
+	backendVersion := componentVersionValue(sc, form, "backend_image_version", shared)
+	frontendVersion := componentVersionValue(sc, form, "frontend_image_version", shared)
+	if backendVersion == "" && frontendVersion == "" {
 		return form, nil
 	}
 
-	// First try the semver catalog (vX.Y.Z tags with pinned image names).
-	resolved, ok := scripts.ResolveImageVersion(version)
-	if !ok {
-		// Not a semver catalog tag — treat as a raw Docker tag (dev, latest, branch name, sha).
-		// Build image names directly from the configured repos + the supplied tag.
-		backendRepo := scripts.BackendRepo()
-		frontendRepo := scripts.FrontendRepo()
-		if backendRepo == "" && frontendRepo == "" {
-			return nil, fmt.Errorf("image tag %q is not in the release catalog and DOCKERHUB_USERNAME / BACKEND_IMAGE / FRONTEND_IMAGE are not configured", version)
-		}
-		resolved = scripts.ImageVersion{
-			Tag:           version,
-			BackendImage:  backendRepo + ":" + version,
-			FrontendImage: frontendRepo + ":" + version,
-		}
+	backend, err := resolveComponent(backendVersion, "backend")
+	if err != nil {
+		return nil, err
+	}
+	frontend, err := resolveComponent(frontendVersion, "frontend")
+	if err != nil {
+		return nil, err
 	}
 
 	out := cloneValues(form)
@@ -1531,33 +1592,67 @@ func expandImageVersion(sc *scripts.Script, form url.Values) (url.Values, error)
 	selectedType := strings.ToLower(strings.TrimSpace(form.Get("type")))
 	useBackend := scope != "role" || selectedType != "frontend"
 	useFrontend := scope != "role" || selectedType != "backend"
-	if scriptHasField(sc, "backend_image") && useBackend && strings.TrimSpace(out.Get("backend_image")) == "" {
-		out.Set("backend_image", resolved.BackendImage)
+	if scriptHasField(sc, "backend_image") && useBackend && strings.TrimSpace(out.Get("backend_image")) == "" && backend.BackendImage != "" {
+		out.Set("backend_image", backend.BackendImage)
 	}
-	if scriptHasField(sc, "frontend_image") && useFrontend && strings.TrimSpace(out.Get("frontend_image")) == "" {
-		out.Set("frontend_image", resolved.FrontendImage)
+	if scriptHasField(sc, "frontend_image") && useFrontend && strings.TrimSpace(out.Get("frontend_image")) == "" && frontend.FrontendImage != "" {
+		out.Set("frontend_image", frontend.FrontendImage)
 	}
-	if scriptHasField(sc, "backend") && useBackend && strings.TrimSpace(out.Get("backend")) == "" {
-		out.Set("backend", resolved.BackendImage)
+	if scriptHasField(sc, "backend") && useBackend && strings.TrimSpace(out.Get("backend")) == "" && backend.BackendImage != "" {
+		out.Set("backend", backend.BackendImage)
 	}
-	if scriptHasField(sc, "frontend") && useFrontend && strings.TrimSpace(out.Get("frontend")) == "" {
-		out.Set("frontend", resolved.FrontendImage)
+	if scriptHasField(sc, "frontend") && useFrontend && strings.TrimSpace(out.Get("frontend")) == "" && frontend.FrontendImage != "" {
+		out.Set("frontend", frontend.FrontendImage)
 	}
 	if scriptHasField(sc, "_pos_image") && strings.TrimSpace(out.Get("_pos_image")) == "" {
-		image := resolved.BackendImage
+		image := backend.BackendImage
 		if strings.TrimSpace(out.Get("type")) == "frontend" {
-			image = resolved.FrontendImage
+			image = frontend.FrontendImage
 		}
 		out.Set("_pos_image", image)
 	}
 	if scriptHasField(sc, "to") && strings.TrimSpace(out.Get("to")) == "" {
-		image := resolved.BackendImage
+		image := backend.BackendImage
 		if strings.TrimSpace(out.Get("type")) == "frontend" {
-			image = resolved.FrontendImage
+			image = frontend.FrontendImage
 		}
 		out.Set("to", image)
 	}
 	return out, nil
+}
+
+func componentVersionValue(sc *scripts.Script, form url.Values, name, shared string) string {
+	_, present := form[name]
+	value := strings.TrimSpace(form.Get(name))
+	if value == "" {
+		value = defaultFieldValue(sc, name)
+	}
+	// A shared image_version is the legacy interface. If a form submits the
+	// new component defaults unchanged, honor the explicit shared selection.
+	if !present && shared != "" && (value == "" || value == "dev") && shared != "dev" {
+		return shared
+	}
+	return value
+}
+
+func resolveComponent(version, role string) (scripts.ImageVersion, error) {
+	if resolved, ok := scripts.ResolveImageVersion(version); ok {
+		return resolved, nil
+	}
+	repo := scripts.BackendRepo()
+	if role == "frontend" {
+		repo = scripts.FrontendRepo()
+	}
+	if repo == "" {
+		return scripts.ImageVersion{}, fmt.Errorf("image tag %q is not in the release catalog and the %s image repository is not configured", version, role)
+	}
+	resolved := scripts.ImageVersion{Tag: version}
+	if role == "frontend" {
+		resolved.FrontendImage = repo + ":" + version
+	} else {
+		resolved.BackendImage = repo + ":" + version
+	}
+	return resolved, nil
 }
 
 func defaultFieldValue(sc *scripts.Script, name string) string {
@@ -1750,6 +1845,7 @@ func (s *server) collectSnapshot(ctx context.Context) appSnapshot {
 		return s.decorateApp(s.dokku.AppSummaryFrom(ctx, name, containerIDs[name], domains[name]))
 	}
 	out := collectAppDetails(ctx, names, snapshotWorkerLimit(len(names)), detail)
+	s.applyOperationStatus(out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	dokkuStatus, dokkuErr := s.dokku.DokkuContainerStatus(ctx)
 	snap := appSnapshot{
@@ -1758,6 +1854,11 @@ func (s *server) collectSnapshot(ctx context.Context) appSnapshot {
 		DokkuStatus:    dokkuStatus,
 		DokkuCheckedAt: time.Now().UTC(),
 	}
+	if snap.Healthy {
+		snap.Liveness = dokku.HealthCheck{Status: "healthy", Reason: "Dokku container is running"}
+	} else {
+		snap.Liveness = dokku.HealthCheck{Status: "unhealthy", Reason: "Dokku container is not running"}
+	}
 	if err != nil {
 		snap.Error = err.Error()
 	}
@@ -1765,6 +1866,38 @@ func (s *server) collectSnapshot(ctx context.Context) appSnapshot {
 		snap.DokkuError = dokkuErr.Error()
 	}
 	return snap
+}
+
+func (s *server) recordOperation(appName, operation string, err error) {
+	if strings.TrimSpace(appName) == "" {
+		return
+	}
+	status := operationStatus{Name: operation, At: time.Now().UTC()}
+	if err != nil {
+		status.Failure = err.Error()
+	}
+	s.operationMu.Lock()
+	if s.operations == nil {
+		s.operations = map[string]operationStatus{}
+	}
+	s.operations[appName] = status
+	s.operationMu.Unlock()
+}
+
+func (s *server) applyOperationStatus(apps []dokku.App) {
+	s.operationMu.RLock()
+	defer s.operationMu.RUnlock()
+	for i := range apps {
+		status, ok := s.operations[apps[i].Name]
+		if !ok {
+			continue
+		}
+		apps[i].LastOperation = status.Name
+		if !status.At.IsZero() {
+			apps[i].LastOperation += " @ " + status.At.Format(time.RFC3339)
+		}
+		apps[i].LastFailure = status.Failure
+	}
 }
 
 func collectAppDetails(ctx context.Context, names []string, workerLimit int, detail func(context.Context, string) dokku.App) []dokku.App {

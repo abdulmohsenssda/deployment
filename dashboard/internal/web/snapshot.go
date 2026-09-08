@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,10 @@ type appSnapshot struct {
 	Duration       time.Duration
 	Refreshing     bool
 	Error          string
+	Liveness       dokku.HealthCheck
 }
+
+const snapshotStaleAfter = 2 * time.Minute
 
 type snapshotCache struct {
 	mu       sync.RWMutex
@@ -137,9 +141,12 @@ func appsJSON(apps []dokku.App) string {
 func snapshotJSON(s appSnapshot) string {
 	payload := snapshotAPI{
 		Healthy:        s.Healthy,
+		Status:         snapshotStatus(s, snapshotIsStale(s, time.Now())),
+		Stale:          snapshotIsStale(s, time.Now()),
 		DokkuStatus:    s.DokkuStatus,
 		DokkuCheckedAt: apiTime(s.DokkuCheckedAt),
 		DokkuError:     s.DokkuError,
+		Liveness:       s.Liveness,
 		Refreshing:     s.Refreshing,
 		UpdatedAt:      s.UpdatedAt.UTC().Format(time.RFC3339),
 		DurationMS:     s.Duration.Milliseconds(),
@@ -154,6 +161,28 @@ func snapshotJSON(s appSnapshot) string {
 	return string(data)
 }
 
+func snapshotIsStale(s appSnapshot, now time.Time) bool {
+	return s.UpdatedAt.IsZero() || now.Sub(s.UpdatedAt) > snapshotStaleAfter
+}
+
+func snapshotStatus(s appSnapshot, stale bool) string {
+	if stale {
+		return "stale"
+	}
+	if !s.Healthy {
+		return "unhealthy"
+	}
+	for _, app := range s.Apps {
+		if app.Liveness.Status != "" && app.Liveness.Status != "healthy" ||
+			app.Internal.Status != "" && app.Internal.Status != "healthy" ||
+			app.External.Status != "" && app.External.Status != "healthy" ||
+			app.Identity.Status != "" && app.Identity.Status != "verified" {
+			return "degraded"
+		}
+	}
+	return "healthy"
+}
+
 func writeAppsJSONArray(b *strings.Builder, apps []dokku.App) {
 	data, err := json.Marshal(appAPIs(apps))
 	if err != nil {
@@ -164,6 +193,8 @@ func writeAppsJSONArray(b *strings.Builder, apps []dokku.App) {
 }
 
 type snapshotAPI struct {
+	Status         string                    `json:"status"`
+	Stale          bool                      `json:"stale"`
 	Healthy        bool                      `json:"healthy"`
 	DokkuStatus    string                    `json:"dokku_status"`
 	DokkuCheckedAt string                    `json:"dokku_checked_at"`
@@ -172,30 +203,44 @@ type snapshotAPI struct {
 	UpdatedAt      string                    `json:"updated_at"`
 	DurationMS     int64                     `json:"duration_ms"`
 	Error          string                    `json:"error"`
+	Liveness       dokku.HealthCheck         `json:"liveness"`
 	Apps           []appAPI                  `json:"apps"`
 	Open           map[string]fleetOpenState `json:"open"`
 }
 
 type appAPI struct {
-	Name                   string   `json:"name"`
-	Role                   string   `json:"role"`
-	Tenant                 string   `json:"tenant"`
-	State                  string   `json:"state"`
-	LifecycleState         string   `json:"lifecycle_state"`
-	LifecycleError         string   `json:"lifecycle_error"`
-	Image                  string   `json:"image"`
-	Version                string   `json:"version"`
-	HTTPCode               string   `json:"http"`
-	ProbeStatus            string   `json:"probe_status"`
-	ProbeCheckedAt         string   `json:"probe_checked_at"`
-	ProbeError             string   `json:"probe_error"`
-	ProbeUnavailableReason string   `json:"probe_unavailable_reason"`
-	Probe                  probeAPI `json:"probe"`
-	IntPort                string   `json:"int_port"`
-	HostPorts              string   `json:"host_ports"`
-	Procs                  string   `json:"procs"`
-	Domains                string   `json:"domains"`
-	PublicURL              string   `json:"public_url"`
+	Name                   string              `json:"name"`
+	Role                   string              `json:"role"`
+	Tenant                 string              `json:"tenant"`
+	State                  string              `json:"state"`
+	LifecycleState         string              `json:"lifecycle_state"`
+	LifecycleError         string              `json:"lifecycle_error"`
+	Image                  string              `json:"image"`
+	Version                string              `json:"version"`
+	HTTPCode               string              `json:"http"`
+	ProbeStatus            string              `json:"probe_status"`
+	ProbeCheckedAt         string              `json:"probe_checked_at"`
+	ProbeError             string              `json:"probe_error"`
+	ProbeUnavailableReason string              `json:"probe_unavailable_reason"`
+	Probe                  probeAPI            `json:"probe"`
+	IntPort                string              `json:"int_port"`
+	HostPorts              string              `json:"host_ports"`
+	Procs                  string              `json:"procs"`
+	Domains                string              `json:"domains"`
+	PublicURL              string              `json:"public_url"`
+	ImageRef               string              `json:"image_ref"`
+	ImageDigest            string              `json:"image_digest"`
+	ResolvedDigest         string              `json:"resolved_digest"`
+	Channel                string              `json:"channel"`
+	SourceCommit           string              `json:"source_commit"`
+	DeployedAt             string              `json:"deployed_at"`
+	LastOperation          string              `json:"last_operation"`
+	LastFailure            string              `json:"last_failure"`
+	ProvenanceStatus       string              `json:"provenance_status"`
+	Liveness               dokku.HealthCheck   `json:"liveness"`
+	InternalHealth         dokku.HealthCheck   `json:"internal_health"`
+	ExternalProbe          dokku.HealthCheck   `json:"external_probe"`
+	Identity               dokku.BuildIdentity `json:"identity"`
 }
 
 type probeAPI struct {
@@ -242,7 +287,16 @@ func appAPIFrom(app dokku.App) appAPI {
 		LifecycleState:         lifecycle,
 		LifecycleError:         app.LifecycleError,
 		Image:                  app.Image,
+		ImageRef:               app.ImageRef,
+		ImageDigest:            app.ImageDigest,
+		ResolvedDigest:         app.ResolvedDigest,
 		Version:                app.Version,
+		Channel:                app.Channel,
+		SourceCommit:           app.SourceCommit,
+		DeployedAt:             app.DeployedAt,
+		LastOperation:          app.LastOperation,
+		LastFailure:            app.LastFailure,
+		ProvenanceStatus:       app.Identity.Status,
 		HTTPCode:               probe.HTTPCode,
 		ProbeStatus:            probe.Status,
 		ProbeCheckedAt:         apiTime(probe.CheckedAt),
@@ -255,11 +309,15 @@ func appAPIFrom(app dokku.App) appAPI {
 			Error:             probe.Error,
 			UnavailableReason: probe.UnavailableReason,
 		},
-		IntPort:   app.IntPort,
-		HostPorts: app.HostPorts,
-		Procs:     strings.Join(app.Procs, ","),
-		Domains:   strings.Join(app.Domains, ","),
-		PublicURL: app.PublicURL,
+		Liveness:       app.Liveness,
+		InternalHealth: app.Internal,
+		ExternalProbe:  app.External,
+		Identity:       app.Identity,
+		IntPort:        app.IntPort,
+		HostPorts:      app.HostPorts,
+		Procs:          strings.Join(app.Procs, ","),
+		Domains:        strings.Join(app.Domains, ","),
+		PublicURL:      app.PublicURL,
 	}
 }
 
@@ -282,4 +340,25 @@ func apiTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func healthJSON(check dokku.HealthCheck) string {
+	var b strings.Builder
+	b.WriteByte('{')
+	fmt.Fprintf(&b, `"status":%q,"http_code":%q,"reason":%q,"url":%q`,
+		check.Status, check.HTTPCode, check.Reason, check.URL)
+	b.WriteByte('}')
+	return b.String()
+}
+
+func identityJSON(identity dokku.BuildIdentity) string {
+	var b strings.Builder
+	b.WriteByte('{')
+	fmt.Fprintf(&b, `"channel":%q,"version":%q,"commit":%q,"short_commit":%q,"source":%q,"image_ref":%q,"digest":%q,"workflow_run_id":%q,"workflow_run_url":%q,"built_at":%q,"workflow_run":%q,"deployed_at":%q,"status":%q,"reason":%q`,
+		identity.Channel, identity.Version, identity.Commit, identity.ShortCommit, identity.Source,
+		identity.ImageRef, identity.Digest, identity.WorkflowRunID, identity.WorkflowRunURL,
+		identity.BuiltAt, identity.WorkflowRun, identity.DeployedAt,
+		identity.Status, identity.Reason)
+	b.WriteByte('}')
+	return b.String()
 }

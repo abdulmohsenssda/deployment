@@ -1,12 +1,38 @@
-[
-  {
-    "tag": "vX.X.X",
-    "date": "YYYY-MM-DD",
-    "status": "ready",
-    "title": "Short release title",
-    "notes": [
-      "Human-written release note.",
-      "Another user-visible change."
-    ]
-  }
-]
+{
+  "schema_version": 1,
+  "releases": [
+    {
+      "id": "vX.X.X",
+      "channel": "release",
+      "date": "YYYY-MM-DD",
+      "status": "not-ready",
+      "title": "Short release title",
+      "notes": [
+        "Human-written release note.",
+        "Another user-visible change."
+      ],
+      "components": {
+        "backend": {
+          "image": "owner/api:vX.X.X",
+          "digest": "sha256:<64 hex characters>",
+          "version": "vX.X.X",
+          "source_commit": "<git sha>",
+          "repository": "owner/backend",
+          "channel": "release",
+          "workflow_run": "123",
+          "workflow_run_url": "https://github.com/owner/backend/actions/runs/123"
+        },
+        "frontend": {
+          "image": "owner/web:vX.X.X",
+          "digest": "sha256:<64 hex characters>",
+          "version": "vX.X.X",
+          "source_commit": "<git sha>",
+          "repository": "owner/frontend",
+          "channel": "stable",
+          "workflow_run": "456",
+          "workflow_run_url": "https://github.com/owner/frontend/actions/runs/456"
+        }
+      }
+    }
+  ]
+}

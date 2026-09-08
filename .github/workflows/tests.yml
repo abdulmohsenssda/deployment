@@ -1,18 +1,73 @@
-name: tests
+name: Linux release gate
 
 on:
   pull_request:
+    branches: [sprint/deployment-provenance-deployment]
   push:
-    branches: [main, dev]
+    branches: [sprint/deployment-provenance-deployment]
+  workflow_dispatch:
 
 jobs:
-  test:
+  shell-release-gate:
+    name: Shell syntax, reconciliation, provenance, and contracts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Normalize shell line endings
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --local core.autocrlf false
+          git ls-files -z -- '*.sh' | xargs -0 sed -i 's/\r$//'
+          if grep -Il $'\r' $(git ls-files '*.sh') >/dev/null 2>&1; then
+            echo "CRLF remains in a checked-out shell script" >&2
+            exit 1
+          fi
+
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(git ls-files -z -- '*.sh')
+
+      - name: Run reconciliation and provenance tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/tests/test-reconcile-runtime.sh
+          bash scripts/tests/test-tenant-provenance.sh
+          bash scripts/tests/test-deployctl.sh
+
+      - name: Check deployment contracts
+        shell: bash
+        run: bash scripts/tests/test-release-contract.sh
+
+  dashboard-release-gate:
+    name: Dashboard test, vet, and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache-dependency-path: dashboard/go.sum
-      - name: Run all tests
-        run: bash scripts/tests/run-all.sh
+
+      - name: Test dashboard
+        working-directory: dashboard
+        run: go test ./...
+
+      - name: Vet dashboard
+        working-directory: dashboard
+        run: go vet ./...
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: go build ./...

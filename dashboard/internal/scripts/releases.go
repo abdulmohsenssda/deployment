@@ -11,12 +11,7 @@ import (
 var imageVersionTagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 
 type releaseMetadata struct {
-	Tag    string   `json:"tag"`
-	Date   string   `json:"date"`
-	Status string   `json:"status"`
-	Broken bool     `json:"broken"`
-	Title  string   `json:"title"`
-	Notes  []string `json:"notes"`
+	ReleaseManifest
 }
 
 func versionOptions() []string {
@@ -28,7 +23,11 @@ func versionOptions() []string {
 	versions := make([]string, 0, len(entries)+1)
 	versions = append(versions, strings.TrimSpace(os.Getenv("APP_IMAGE_VERSION_DEFAULT")))
 	for _, entry := range entries {
-		versions = append(versions, entry.Tag)
+		tag := strings.TrimSpace(entry.Tag)
+		if tag == "" {
+			tag = strings.TrimSpace(entry.ID)
+		}
+		versions = append(versions, tag)
 	}
 	if out := versionTagsOnly(uniqueNonEmpty(versions)); len(out) > 0 {
 		return out
@@ -40,12 +39,23 @@ func versionOptions() []string {
 func releaseMetadataByTag() map[string]releaseMetadata {
 	out := map[string]releaseMetadata{}
 	for _, entry := range loadReleaseMetadata() {
+		entry.ID = strings.TrimSpace(entry.ID)
 		entry.Tag = strings.TrimSpace(entry.Tag)
-		if !IsImageVersionTag(entry.Tag) {
+		tag := entry.ID
+		if tag == "" {
+			tag = entry.Tag
+		}
+		if !IsImageVersionTag(tag) {
 			continue
 		}
+		if entry.ID == "" {
+			entry.ID = tag
+		}
+		if entry.Tag == "" {
+			entry.Tag = tag
+		}
 		entry.Status = strings.TrimSpace(entry.Status)
-		out[entry.Tag] = entry
+		out[tag] = entry
 	}
 	return out
 }
@@ -74,12 +84,28 @@ func loadReleaseMetadata() []releaseMetadata {
 		if err != nil {
 			continue
 		}
-		var entries []releaseMetadata
-		if err := json.Unmarshal(data, &entries); err == nil {
-			return entries
+		var legacy []releaseManifestJSON
+		if err := json.Unmarshal(data, &legacy); err == nil {
+			out := make([]releaseMetadata, 0, len(legacy))
+			for _, entry := range legacy {
+				out = append(out, releaseMetadata{ReleaseManifest: entry.ReleaseManifest})
+			}
+			return out
+		}
+		var file ReleaseManifestFile
+		if err := json.Unmarshal(data, &file); err == nil && file.Releases != nil {
+			out := make([]releaseMetadata, 0, len(file.Releases))
+			for _, entry := range file.Releases {
+				out = append(out, releaseMetadata{ReleaseManifest: entry})
+			}
+			return out
 		}
 	}
 	return nil
+}
+
+type releaseManifestJSON struct {
+	ReleaseManifest
 }
 
 func releaseFileCandidates() []string {

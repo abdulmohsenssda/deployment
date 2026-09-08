@@ -78,6 +78,7 @@ BACKEND_IMAGE=ssdawweq/ifritah-api
 FRONTEND_IMAGE=ssdawweq/ifritah-web
 APP_IMAGE_VERSIONS=v0.0.1
 APP_IMAGE_VERSION_DEFAULT=dev
+# APP_IMAGE_VERSION_DEFAULT=v0.0.1  # omit in dev to default to dev
 ```
 
 Role-specific actions (database init, deploy, rollback, and image pinning)
@@ -123,19 +124,50 @@ the dashboard environment when SQL backups or accounting exports are enabled.
 
 Publishing `BACKEND_IMAGE:v0.0.1` and `FRONTEND_IMAGE:v0.0.1` makes `v0.0.1` selectable as a compatible pair. Re-pushing without changing `VERSION` overwrites that same image tag; increment `VERSION` only for a new feature or bug-fix release.
 
-Release notes are best kept in GitHub Releases, then mirrored into `dashboard/releases.json` for the server dashboard, or into `APP_IMAGE_RELEASES_FILE` when set. Broken status is not read from the file: the dashboard marks a version broken when the latest Dokku deployment currently running that version is not healthy. The file shape is:
+Release notes are best kept in GitHub Releases, then mirrored into `dashboard/releases.json` for the server dashboard, or into `APP_IMAGE_RELEASES_FILE` when set. A release is not ready from a tag string alone: both components must have an immutable digest and OCI version/revision identity validated against the selected image manifests. Broken status is still added when a deployed app is unhealthy. The versioned file shape is:
 
 ```json
-[
-  {
-    "tag": "vX.X.X",
-    "date": "YYYY-MM-DD",
-    "status": "ready",
+{
+  "schema_version": 1,
+  "releases": [{
+    "id": "vX.X.X",
+    "channel": "stable",
     "title": "Short release title",
-    "notes": ["Human-written release note."]
-  }
-]
+    "notes": ["Human-written release note."],
+    "components": {
+      "backend": {
+        "image": "owner/api:vX.X.X",
+        "digest": "sha256:<64 hex characters>",
+        "version": "vX.X.X",
+        "source_commit": "<git sha>",
+        "repository": "owner/backend",
+        "workflow_run": "123"
+      },
+      "frontend": {
+        "image": "owner/web:vX.X.X",
+        "digest": "sha256:<64 hex characters>",
+        "version": "vX.X.X",
+        "source_commit": "<git sha>",
+        "repository": "owner/frontend",
+        "workflow_run": "456"
+      }
+    }
+  }]
+}
 ```
+
+Generate or validate a catalog deterministically without Docker credentials:
+
+```sh
+go run ./cmd/release-manifest generate -input release.json -previous releases.json -output releases.json
+go run ./cmd/release-manifest validate -manifest releases.json
+```
+
+`validate -dockerhub` additionally checks Docker Hub tag/digest and OCI config
+labels. A failed or unavailable remote check remains `not-ready`; remote checks
+are runtime-only when the registry is private or unreachable. A release input
+may omit the unchanged component only when `-previous` supplies its last
+known-good digest.
 
 The equivalent shell workflow uses the same command vocabulary:
 
@@ -163,6 +195,13 @@ while HTTP `000` is shown with the probe failure or unavailable reason rather
 than being treated as a lifecycle state. Snapshot events also expose
 `dokku_status`, `dokku_checked_at`, and `dokku_error`; the legacy `healthy`
 boolean remains available.
+`GET /api/status` returns the cached status snapshot. It keeps the legacy
+`image`, `version`, and `http` fields and adds separate liveness, internal
+health, external routing, and provenance results. Each app includes an
+`identity` object with the non-secret channel, version, full/short commit,
+source image ref, resolved digest, workflow run, deployment time, and
+verification status. A `000` result includes an actionable `reason`; a stale
+snapshot is reported with `status: "stale"` rather than being treated as live.
 
 Generate a password hash:
 

@@ -138,6 +138,42 @@ func TestBuildArgv_UpdateTenant_VersionExpandsPair(t *testing.T) {
 	}
 }
 
+func TestBuildArgv_UpdateTenant_SelectsComponentsIndependently(t *testing.T) {
+	setVersionTestEnv(t)
+	sc := scripts.Find("update-tenant.sh")
+	form := url.Values{
+		"_pos_name":              {"fresh"},
+		"backend_image_version":  {"v0.0.2"},
+		"frontend_image_version": {"dev"},
+	}
+	argv, err := buildArgv(sc, form)
+	if err != nil {
+		t.Fatalf("buildArgv: %v", err)
+	}
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--backend-image ssdawweq/ifritah-api:v0.0.2") ||
+		!strings.Contains(joined, "--frontend-image ssdawweq/ifritah-web:dev") {
+		t.Fatalf("expected independent component images, got %s", joined)
+	}
+}
+
+func TestBuildArgv_DefaultsBothComponentsToDev(t *testing.T) {
+	t.Setenv("BACKEND_IMAGE", "ssdawweq/ifritah-api")
+	t.Setenv("FRONTEND_IMAGE", "ssdawweq/ifritah-web")
+	t.Setenv("APP_IMAGE_VERSIONS", "")
+	t.Setenv("APP_IMAGE_VERSION_DEFAULT", "")
+	sc := scripts.Find("update-tenant.sh")
+	argv, err := buildArgv(sc, url.Values{"_pos_name": {"fresh"}})
+	if err != nil {
+		t.Fatalf("buildArgv: %v", err)
+	}
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "--backend-image ssdawweq/ifritah-api:dev") ||
+		!strings.Contains(joined, "--frontend-image ssdawweq/ifritah-web:dev") {
+		t.Fatalf("expected dev defaults, got %s", joined)
+	}
+}
+
 func TestBuildArgv_DeployAll_FrontendVersionExpandsPosImage(t *testing.T) {
 	setVersionTestEnv(t)
 	sc := scripts.Find("deploy-all.sh")
