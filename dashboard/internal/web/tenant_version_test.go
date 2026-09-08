@@ -11,8 +11,8 @@ import (
 // the fleet default. Regression test for "details show v0.0.1 instead of the
 // selected dev tag".
 func TestTenantSyncVersion_PrefersDeployedVersion(t *testing.T) {
-	backend := &dokku.App{Name: "acme-backend", Role: "backend", Version: "dev"}
-	frontend := &dokku.App{Name: "acme-frontend", Role: "frontend", Version: "dev"}
+	backend := &dokku.App{Name: "acme-backend", Role: "backend", Version: "v0.0.1", Tag: "dev"}
+	frontend := &dokku.App{Name: "acme-frontend", Role: "frontend", Version: "v0.0.1", Tag: "dev"}
 
 	if got := tenantSyncVersion(backend, frontend, "v0.0.1"); got != "dev" {
 		t.Fatalf("tenantSyncVersion = %q, want %q (deployed version must win over default)", got, "dev")
@@ -22,8 +22,8 @@ func TestTenantSyncVersion_PrefersDeployedVersion(t *testing.T) {
 // When the backend tag is missing, fall back to the frontend tag before the
 // default.
 func TestTenantSyncVersion_FallsBackToFrontendThenDefault(t *testing.T) {
-	backend := &dokku.App{Name: "acme-backend", Role: "backend", Version: ""}
-	frontend := &dokku.App{Name: "acme-frontend", Role: "frontend", Version: "feature-x"}
+	backend := &dokku.App{Name: "acme-backend", Role: "backend", Version: "", Tag: ""}
+	frontend := &dokku.App{Name: "acme-frontend", Role: "frontend", Version: "v0.0.1", Tag: "feature-x"}
 	if got := tenantSyncVersion(backend, frontend, "v0.0.1"); got != "feature-x" {
 		t.Fatalf("tenantSyncVersion = %q, want %q", got, "feature-x")
 	}

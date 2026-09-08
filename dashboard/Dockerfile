@@ -14,7 +14,8 @@
 #   docker pull ssdawweq/dokku-dashboard:prod
 #   docker compose -f docker-compose.prod.yml up -d --force-recreate
 #
-# BUILD_VERSION and BUILD_COMMIT are embedded in the binary and OCI labels.
+# BUILD_VERSION and BUILD_COMMIT are embedded in the binary. APP_* arguments
+# carry the complete image identity into the running dashboard.
 # =============================================================================
 
 # ── Stage 1: compile ─────────────────────────────────────────────────────────
@@ -52,6 +53,18 @@ FROM alpine:3.20
 
 ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown
+ARG APP_VERSION=dev
+ARG APP_IMAGE_VERSION=dev
+ARG APP_IMAGE_TAG=dev
+ARG APP_IMAGE_CHANNEL=dev
+ARG APP_IMAGE_REF=
+ARG APP_IMAGE_DIGEST=
+ARG APP_IMAGE_COMMIT=unknown
+ARG APP_IMAGE_COMMIT_SHORT=
+ARG APP_WORKFLOW_RUN_ID=
+ARG APP_WORKFLOW_RUN_URL=
+ARG APP_SOURCE=
+ARG APP_BUILT_AT=
 
 # Copy ca-certificates from the builder (avoids apk network calls on restricted networks).
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -65,7 +78,30 @@ COPY --from=docker-bin /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=builder /dashboard /app/dashboard
 
 LABEL org.opencontainers.image.version=$BUILD_VERSION \
-      org.opencontainers.image.revision=$BUILD_COMMIT
+      org.opencontainers.image.revision=$BUILD_COMMIT \
+      org.opencontainers.image.source=$APP_SOURCE \
+      org.opencontainers.image.created=$APP_BUILT_AT \
+      com.ifritah.build.channel=$APP_IMAGE_CHANNEL \
+      com.ifritah.build.tag=$APP_IMAGE_TAG \
+      com.ifritah.build.image_ref=$APP_IMAGE_REF \
+      com.ifritah.build.digest=$APP_IMAGE_DIGEST \
+      com.ifritah.build.commit=$APP_IMAGE_COMMIT \
+      com.ifritah.build.commit_short=$APP_IMAGE_COMMIT_SHORT \
+      com.ifritah.build.workflow_run_id=$APP_WORKFLOW_RUN_ID \
+      com.ifritah.build.workflow_run_url=$APP_WORKFLOW_RUN_URL
+
+ENV APP_VERSION="${APP_VERSION}" \
+    APP_IMAGE_VERSION="${APP_IMAGE_VERSION}" \
+    APP_IMAGE_TAG="${APP_IMAGE_TAG}" \
+    APP_IMAGE_CHANNEL="${APP_IMAGE_CHANNEL}" \
+    APP_IMAGE_REF="${APP_IMAGE_REF}" \
+    APP_IMAGE_DIGEST="${APP_IMAGE_DIGEST}" \
+    APP_IMAGE_COMMIT="${APP_IMAGE_COMMIT}" \
+    APP_IMAGE_COMMIT_SHORT="${APP_IMAGE_COMMIT_SHORT}" \
+    APP_WORKFLOW_RUN_ID="${APP_WORKFLOW_RUN_ID}" \
+    APP_WORKFLOW_RUN_URL="${APP_WORKFLOW_RUN_URL}" \
+    APP_SOURCE="${APP_SOURCE}" \
+    APP_BUILT_AT="${APP_BUILT_AT}"
 
 WORKDIR /app
 EXPOSE 8080

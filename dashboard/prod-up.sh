@@ -19,6 +19,15 @@ COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.prod.yml"
 
 echo "[+] Pulling latest image: $IMAGE"
 docker pull "$IMAGE"
+IMAGE_DIGEST="$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}' \
+  | awk -F'@' 'NF == 2 {print $2; exit}')"
+if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "[!] Pulled image did not expose a manifest digest: $IMAGE" >&2
+    exit 1
+fi
+export DASHBOARD_IMAGE_REF="$IMAGE"
+export DASHBOARD_IMAGE_DIGEST="$IMAGE_DIGEST"
+echo "[+] Resolved manifest digest: $IMAGE_DIGEST"
 
 echo "[+] Stopping old container (if running)..."
 docker stop "$CONTAINER" 2>/dev/null || true

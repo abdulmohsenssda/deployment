@@ -37,35 +37,37 @@ func New(dockerBin, dokkuName string) *Client {
 
 // App is a single Dokku app with the data needed to render the list page.
 type App struct {
-	Name           string
-	Role           string // backend / frontend / app
-	Tenant         string
-	State          string // running / stopped / not-deployed / restarting / mixed / unknown
-	LifecycleState string
-	LifecycleError string
-	Image          string
-	Version        string
-	ImageRef       string
-	ImageDigest    string
-	ResolvedDigest string
-	Channel        string
-	SourceCommit   string
-	DeployedAt     string
-	LastOperation  string
-	LastFailure    string
-	Identity       BuildIdentity
-	RestartCnt     string
-	Procs          []string
-	IntPort        string
-	HostPorts      string
-	Domains        []string
-	HTTPCode       string // Deprecated compatibility alias for Probe.HTTPCode.
-	Probe          HealthProbe
-	ContainerID    string
-	PublicURL      string
-	Liveness       HealthCheck
-	Internal       HealthCheck
-	External       HealthCheck
+	Name            string
+	Role            string // backend / frontend / app
+	Tenant          string
+	State           string // running / stopped / not-deployed / restarting / mixed / unknown
+	LifecycleState  string
+	LifecycleError  string
+	Image           string
+	Version         string
+	SemanticVersion string
+	Tag             string
+	ImageRef        string
+	ImageDigest     string
+	ResolvedDigest  string
+	Channel         string
+	SourceCommit    string
+	DeployedAt      string
+	LastOperation   string
+	LastFailure     string
+	Identity        BuildIdentity
+	RestartCnt      string
+	Procs           []string
+	IntPort         string
+	HostPorts       string
+	Domains         []string
+	HTTPCode        string // Deprecated compatibility alias for Probe.HTTPCode.
+	Probe           HealthProbe
+	ContainerID     string
+	PublicURL       string
+	Liveness        HealthCheck
+	Internal        HealthCheck
+	External        HealthCheck
 }
 
 // HealthProbe describes the latest application HTTP probe independently from
@@ -92,6 +94,7 @@ type containerSummary struct {
 	ResolvedDigest string
 	ImageDigest    string
 	Version        string
+	Tag            string
 	ImageRef       string
 	Channel        string
 	SourceCommit   string
@@ -113,16 +116,18 @@ type HealthCheck struct {
 // BuildIdentity is the non-secret provenance contract recorded by deployment
 // scripts and OCI image labels.
 type BuildIdentity struct {
-	Channel        string `json:"channel,omitempty"`
-	Version        string `json:"version,omitempty"`
-	Commit         string `json:"commit,omitempty"`
-	ShortCommit    string `json:"short_commit,omitempty"`
-	Source         string `json:"source,omitempty"`
-	ImageRef       string `json:"image_ref,omitempty"`
-	Digest         string `json:"digest,omitempty"`
-	WorkflowRunID  string `json:"workflow_run_id,omitempty"`
-	WorkflowRunURL string `json:"workflow_run_url,omitempty"`
-	BuiltAt        string `json:"built_at,omitempty"`
+	Channel         string `json:"channel,omitempty"`
+	Version         string `json:"version,omitempty"`
+	SemanticVersion string `json:"semantic_version,omitempty"`
+	Tag             string `json:"tag,omitempty"`
+	Commit          string `json:"commit,omitempty"`
+	ShortCommit     string `json:"short_commit,omitempty"`
+	Source          string `json:"source,omitempty"`
+	ImageRef        string `json:"image_ref,omitempty"`
+	Digest          string `json:"digest,omitempty"`
+	WorkflowRunID   string `json:"workflow_run_id,omitempty"`
+	WorkflowRunURL  string `json:"workflow_run_url,omitempty"`
+	BuiltAt         string `json:"built_at,omitempty"`
 	// WorkflowRun and DeployedAt remain serialized for migration consumers.
 	WorkflowRun string `json:"workflow_run,omitempty"`
 	DeployedAt  string `json:"deployed_at,omitempty"`
@@ -200,6 +205,8 @@ func (c *Client) AppSummaryFrom(ctx context.Context, name, containerID string, d
 		app.ResolvedDigest = digestFromRepoDigest(repoDigest)
 	}
 	app.Version = container.Version
+	app.SemanticVersion = container.Version
+	app.Tag = container.Tag
 	app.Channel = container.Channel
 	app.SourceCommit = container.SourceCommit
 	app.DeployedAt = container.DeployedAt
@@ -214,8 +221,10 @@ func (c *Client) AppSummaryFrom(ctx context.Context, name, containerID string, d
 		app.ResolvedDigest = app.ImageDigest
 	}
 	app.Identity = buildIdentity(container.Env, app.ImageRef, app.ImageDigest, app.Version)
+	app.SemanticVersion = app.Identity.SemanticVersion
+	app.Tag = app.Identity.Tag
 	if app.Channel == "" {
-		app.Channel = app.Version
+		app.Channel = app.Identity.Channel
 	}
 	app.RestartCnt = container.RestartCnt
 	app.Probe = c.appProbe(ctx, name, app.Role, app.State)
@@ -276,6 +285,14 @@ func parseContainerSummary(out string) containerSummary {
 		}
 		if strings.HasPrefix(line, "APP_IMAGE_VERSION=") {
 			summary.Version = strings.TrimPrefix(line, "APP_IMAGE_VERSION=")
+		} else if strings.HasPrefix(line, "APP_IMAGE_CHANNEL=") {
+			summary.Channel = strings.TrimPrefix(line, "APP_IMAGE_CHANNEL=")
+		} else if strings.HasPrefix(line, "APP_IMAGE_TAG=") {
+			summary.Tag = strings.TrimPrefix(line, "APP_IMAGE_TAG=")
+		} else if strings.HasPrefix(line, "com.ifritah.build.tag=") && summary.Tag == "" {
+			summary.Tag = strings.TrimPrefix(line, "com.ifritah.build.tag=")
+		} else if strings.HasPrefix(line, "org.opencontainers.image.ref.name=") && summary.Tag == "" {
+			summary.Tag = strings.TrimPrefix(line, "org.opencontainers.image.ref.name=")
 		} else if strings.HasPrefix(line, "APP_IMAGE_REF=") {
 			summary.ImageRef = strings.TrimPrefix(line, "APP_IMAGE_REF=")
 		} else if strings.HasPrefix(line, "org.opencontainers.image.version=") && summary.Version == "" {
@@ -291,8 +308,8 @@ func parseContainerSummary(out string) containerSummary {
 	if summary.ImageRef == "" {
 		summary.ImageRef = summary.Image
 	}
-	if summary.Channel == "" {
-		summary.Channel = summary.Version
+	if summary.Tag == "" {
+		summary.Tag = imageTag(summary.ImageRef)
 	}
 	return summary
 }
@@ -373,9 +390,11 @@ func (c *Client) AppDetails(ctx context.Context, name string) App {
 		a.SourceCommit = container.SourceCommit
 		a.DeployedAt = container.DeployedAt
 		a.Identity = buildIdentity(container.Env, a.ImageRef, a.ImageDigest, a.Version)
+		a.SemanticVersion = a.Identity.SemanticVersion
+		a.Tag = a.Identity.Tag
 		a.RestartCnt = container.RestartCnt
 		if a.Channel == "" {
-			a.Channel = a.Version
+			a.Channel = a.Identity.Channel
 		}
 		a.HostPorts = c.hostPorts(ctx, a.ContainerID)
 	}
@@ -841,6 +860,7 @@ func buildIdentity(env map[string]string, imageRef, imageDigest, version string)
 	identity := BuildIdentity{
 		Channel:        firstNonEmpty(env["APP_IMAGE_CHANNEL"], env["APP_BUILD_CHANNEL"], env["BUILD_CHANNEL"], env["com.ifritah.build.channel"], env["org.opencontainers.image.channel"]),
 		Version:        firstNonEmpty(env["APP_IMAGE_VERSION"], env["APP_VERSION"], version, env["org.opencontainers.image.version"]),
+		Tag:            firstNonEmpty(env["APP_IMAGE_TAG"], env["APP_TAG"], env["com.ifritah.build.tag"], env["com.ifritah.build.image_tag"], env["org.opencontainers.image.ref.name"], imageTag(imageRef)),
 		Commit:         firstNonEmpty(env["APP_IMAGE_COMMIT"], env["APP_COMMIT"], env["APP_SOURCE_COMMIT"], env["BUILD_COMMIT"], env["org.opencontainers.image.revision"]),
 		ShortCommit:    firstNonEmpty(env["APP_IMAGE_COMMIT_SHORT"], env["APP_SOURCE_COMMIT_SHORT"]),
 		Source:         firstNonEmpty(env["APP_SOURCE"], env["org.opencontainers.image.source"]),
@@ -853,6 +873,7 @@ func buildIdentity(env map[string]string, imageRef, imageDigest, version string)
 		DeployedAt:     firstNonEmpty(env["APP_DEPLOYED_AT"], env["DEPLOYED_AT"]),
 		Status:         "verified",
 	}
+	identity.SemanticVersion = identity.Version
 	if identity.ShortCommit == "" && len(identity.Commit) > 7 {
 		identity.ShortCommit = identity.Commit[:7]
 	}
@@ -863,6 +884,7 @@ func buildIdentity(env map[string]string, imageRef, imageDigest, version string)
 	}{
 		{"channel", identity.Channel},
 		{"version", identity.Version},
+		{"tag", identity.Tag},
 		{"commit", identity.Commit},
 		{"source", identity.Source},
 		{"image ref", identity.ImageRef},
@@ -898,7 +920,11 @@ func buildIdentity(env map[string]string, imageRef, imageDigest, version string)
 	} else if !fullImageRef(identity.ImageRef) {
 		identity.Status = "invalid"
 		identity.Reason = "image ref must include repository and tag"
+	} else if !fullImageTag(identity.Tag) {
+		identity.Status = "invalid"
+		identity.Reason = "tag is missing"
 	}
+
 	return identity
 }
 
@@ -910,6 +936,11 @@ func fullImageRef(value string) bool {
 	slash := strings.LastIndex(value, "/")
 	colon := strings.LastIndex(value, ":")
 	return colon > slash && colon < len(value)-1
+}
+
+func fullImageTag(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && !strings.ContainsAny(value, " \t\r\n:@")
 }
 
 func firstNonEmpty(values ...string) string {

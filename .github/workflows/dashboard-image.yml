@@ -1,21 +1,16 @@
 # =============================================================================
-# dashboard-image.yml — Build and push the Dokku Dashboard Docker image
+# dashboard-image.yml - Build and push the Dokku Dashboard Docker image
 # =============================================================================
-# Triggers on every push to main so the server can update with:
+# Every push to main publishes the dashboard image. The server can update with:
 #
 #   docker pull ssdawweq/dokku-dashboard:latest
 #   docker compose -f docker-compose.prod.yml up -d --force-recreate
 #
-# No Go installation or binary build step needed on the server.
-# The Dockerfile uses a multi-stage build (golang:1.25-alpine builder stage)
-# so the full Go compilation happens inside Docker on GitHub's runners.
-#
 # Tags pushed:
-#   :latest          — always the most recent build from main
-#   :prod            — alias for latest (used by docker-compose.prod.yml)
-#   :<short-sha>     — immutable reference for rollback
-#
-# The binary and OCI metadata carry BUILD_VERSION plus the full commit SHA.
+#   :latest       - moving main alias
+#   :prod         - production alias used by docker-compose.prod.yml
+#   :<short-sha>  - convenient immutable reference
+#   :<full-sha>   - immutable reference for rollback and audit
 #
 # Required GitHub Secrets:
 #   DOCKERHUB_USERNAME
@@ -35,9 +30,6 @@ on:
 permissions:
   contents: read
 
-env:
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/dokku-dashboard
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -56,6 +48,27 @@ jobs:
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
+      - name: Validate Docker Hub image configuration
+        id: image
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')"
+          if [[ ! "$owner" =~ ^[a-z0-9][a-z0-9_-]{0,127}$ ]]; then
+            echo "DOCKERHUB_USERNAME is missing or invalid" >&2
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "DOCKERHUB_TOKEN is required" >&2
+            exit 1
+          fi
+          image="${owner}/dokku-dashboard"
+          echo "name=${image}" >> "$GITHUB_OUTPUT"
+          echo "image=${image}"
+
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -68,12 +81,14 @@ jobs:
       - name: Compute build identity
         id: build
         run: |
+          set -euo pipefail
           version="$(printf '%s' "${GITHUB_REF_NAME:-manual}" \
             | tr '[:upper:]' '[:lower:]' \
             | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' \
             | cut -c1-64)"
           [ -n "$version" ] || version="manual"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
@@ -82,15 +97,61 @@ jobs:
           file: ./dashboard/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:prod
-            ${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.short }}
+            ${{ steps.image.outputs.name }}:latest
+            ${{ steps.image.outputs.name }}:prod
+            ${{ steps.image.outputs.name }}:${{ steps.sha.outputs.short }}
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
           build-args: |
             BUILD_VERSION=${{ steps.build.outputs.version }}
             BUILD_COMMIT=${{ github.sha }}
+            APP_VERSION=${{ steps.build.outputs.version }}
+            APP_IMAGE_VERSION=${{ steps.build.outputs.version }}
+            APP_IMAGE_TAG=prod
+            APP_IMAGE_CHANNEL=production
+            APP_IMAGE_REF=${{ steps.image.outputs.name }}:prod
+            APP_IMAGE_COMMIT=${{ github.sha }}
+            APP_IMAGE_COMMIT_SHORT=${{ steps.sha.outputs.short }}
+            APP_WORKFLOW_RUN_ID=${{ github.run_id }}
+            APP_WORKFLOW_RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
+            APP_BUILT_AT=${{ steps.build.outputs.built_at }}
           labels: |
             org.opencontainers.image.version=${{ steps.build.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ steps.build.outputs.built_at }}
+            com.ifritah.build.channel=production
+            com.ifritah.build.tag=prod
+            com.ifritah.build.image_ref=${{ steps.image.outputs.name }}:prod
+            com.ifritah.build.commit=${{ github.sha }}
+            com.ifritah.build.commit_short=${{ steps.sha.outputs.short }}
+            com.ifritah.build.workflow_run_id=${{ github.run_id }}
+            com.ifritah.build.workflow_run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify published tags, manifest, and OCI identity
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          COMMIT: ${{ github.sha }}
+          SHORT_COMMIT: ${{ steps.sha.outputs.short }}
+          VERSION: ${{ steps.build.outputs.version }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for tag in latest prod "$SHORT_COMMIT" "$COMMIT"; do
+            docker buildx imagetools inspect "${IMAGE_NAME}:${tag}" >/dev/null
+          done
+          manifest="$(docker buildx imagetools inspect "${IMAGE_NAME}:prod" \
+            | awk '$1 == "Digest:" {print $2; exit}')"
+          [[ "$manifest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "published prod tag did not return a manifest digest" >&2
+            exit 1
+          }
+          docker pull "${IMAGE_NAME}:prod" >/dev/null
+          test "$(docker image inspect "${IMAGE_NAME}:prod" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION"
+          test "$(docker image inspect "${IMAGE_NAME}:prod" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$COMMIT"
+          test "$(docker image inspect "${IMAGE_NAME}:prod" --format '{{index .Config.Labels "com.ifritah.build.image_ref"}}')" = "${IMAGE_NAME}:prod"
+          test "$(docker image inspect "${IMAGE_NAME}:prod" --format '{{index .Config.Labels "com.ifritah.build.workflow_run_id"}}')" = "$WORKFLOW_RUN_ID"
+          echo "published ${IMAGE_NAME}:prod at ${manifest}"

@@ -299,9 +299,9 @@ deploy_component() {
     local component="$1" image="$2" app="${TENANT_NAME}-${1}"
     local values="${COMPONENT_IDENTITY[$component]}"
     local channel version commit_sha commit_short workflow workflow_url image_ref digest built_at
-    local resolved_ref="${image%@*}@${digest}"
     IFS=$'\t' read -r channel version commit_sha commit_short workflow workflow_url \
         image_ref digest built_at <<< "$values"
+    local resolved_ref="${image%@*}@${digest}"
 
     if ! tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
         "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
@@ -312,9 +312,7 @@ deploy_component() {
         record_failure "$component" "$image" "deployment audit start failed"
         return 1
     fi
-
     log "Deploying ${component}: ${image} (${digest})"
-    local resolved_ref="${image%@*}@${digest}"
     if ! dokku config:set --no-restart "$app" \
         APP_VERSION="$version" \
         APP_COMMIT="$commit_sha" \

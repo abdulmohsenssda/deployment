@@ -40,20 +40,24 @@ var staticFS embed.FS
 const sessionName = "dashboard"
 
 type imageTagSetLookup func(context.Context, string, string) (map[string]bool, map[string]bool, error)
+type imageTagRepoLookup func(context.Context, string) (map[string]bool, error)
+type imageTagLookup func(context.Context, string, string) (bool, error)
 
 type server struct {
-	cfg         config.Config
-	dokku       *dokku.Client
-	logs        *logbuf.Store
-	runner      *scripts.Runner
-	pages       map[string]*template.Template
-	store       *sessions.CookieStore
-	snapshots   *snapshotCache
-	tenantState *tenantstate.Store
-	imageTags   imageTagSetLookup
-	authMu      sync.RWMutex
-	operationMu sync.RWMutex
-	operations  map[string]operationStatus
+	cfg             config.Config
+	dokku           *dokku.Client
+	logs            *logbuf.Store
+	runner          *scripts.Runner
+	pages           map[string]*template.Template
+	store           *sessions.CookieStore
+	snapshots       *snapshotCache
+	tenantState     *tenantstate.Store
+	imageTags       imageTagSetLookup
+	imageTagsByRepo imageTagRepoLookup
+	imageTagExists  imageTagLookup
+	authMu          sync.RWMutex
+	operationMu     sync.RWMutex
+	operations      map[string]operationStatus
 }
 
 type operationStatus struct {
@@ -382,12 +386,12 @@ func backupRetentionDays(days int) int {
 // fleet default. When neither app reports a version it falls back to def.
 func tenantSyncVersion(backend, frontend *dokku.App, def string) string {
 	if backend != nil {
-		if v := strings.TrimSpace(backend.Version); v != "" {
+		if v := strings.TrimSpace(backend.Tag); v != "" {
 			return v
 		}
 	}
 	if frontend != nil {
-		if v := strings.TrimSpace(frontend.Version); v != "" {
+		if v := strings.TrimSpace(frontend.Tag); v != "" {
 			return v
 		}
 	}
@@ -860,11 +864,79 @@ func fetchImageTagSetChecked(ctx context.Context, repo string) (map[string]bool,
 	return set, nil
 }
 
+func fetchImageTagChecked(ctx context.Context, repo, tag string) (bool, error) {
+	repo = strings.TrimSpace(repo)
+	tag = strings.TrimSpace(tag)
+	if repo == "" || tag == "" {
+		return false, fmt.Errorf("image repository and tag are required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	apiURL := "https://hub.docker.com/v2/repositories/" + repo + "/tags/" + url.PathEscape(tag)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := (&http.Client{Timeout: 8 * time.Second}).Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("Docker Hub returned HTTP %d", resp.StatusCode)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return true, nil
+}
+
 func (s *server) lookupImageTagSets(ctx context.Context, backendRepo, frontendRepo string) (map[string]bool, map[string]bool, error) {
 	if s.imageTags != nil {
 		return s.imageTags(ctx, backendRepo, frontendRepo)
 	}
 	return fetchImageTagSetsChecked(ctx, backendRepo, frontendRepo)
+}
+
+func (s *server) lookupImageTagSetsForRoles(ctx context.Context, backendRepo, frontendRepo string, roles []string) (map[string]bool, map[string]bool, error) {
+	if len(roles) != 1 {
+		return s.lookupImageTagSets(ctx, backendRepo, frontendRepo)
+	}
+	if s.imageTagsByRepo == nil {
+		if s.imageTags != nil {
+			return s.imageTags(ctx, backendRepo, frontendRepo)
+		}
+		if roles[0] == "backend" {
+			bTags, err := fetchImageTagSetChecked(ctx, backendRepo)
+			return bTags, map[string]bool{}, err
+		}
+		fTags, err := fetchImageTagSetChecked(ctx, frontendRepo)
+		return map[string]bool{}, fTags, err
+	}
+	if roles[0] == "backend" {
+		bTags, err := s.imageTagsByRepo(ctx, backendRepo)
+		return bTags, map[string]bool{}, err
+	}
+	fTags, err := s.imageTagsByRepo(ctx, frontendRepo)
+	return map[string]bool{}, fTags, err
+}
+
+func (s *server) selectedImageTagExists(ctx context.Context, repo, tag string) (bool, error) {
+	if s.imageTagExists != nil {
+		return s.imageTagExists(ctx, repo, tag)
+	}
+	if s.imageTags != nil {
+		bTags, fTags, err := s.imageTags(ctx, repo, "")
+		if err != nil {
+			return false, err
+		}
+		if repo == scripts.FrontendRepo() {
+			return fTags[tag], nil
+		}
+		return bTags[tag], nil
+	}
+	return fetchImageTagChecked(ctx, repo, tag)
 }
 
 // fetchSingleTagMeta calls the Docker Hub v2 tag detail API and returns
@@ -1161,6 +1233,10 @@ func (s *server) handleScriptRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.validateSelectedImageRefs(r.Context(), sc, form); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -1214,7 +1290,7 @@ func (s *server) normalizeImageSelection(ctx context.Context, sc *scripts.Script
 
 	backendRepo := scripts.BackendRepo()
 	frontendRepo := scripts.FrontendRepo()
-	bTags, fTags, err := s.lookupImageTagSets(ctx, backendRepo, frontendRepo)
+	bTags, fTags, err := s.lookupImageTagSetsForRoles(ctx, backendRepo, frontendRepo, roles)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify image tag %q before action: %w", tag, err)
 	}
@@ -1238,6 +1314,112 @@ func (s *server) normalizeImageSelection(ctx context.Context, sc *scripts.Script
 		return nil, incompatibleImageTagError(tag, roles, bTags, fTags)
 	}
 	return out, nil
+}
+
+type selectedImageRef struct {
+	role string
+	ref  string
+}
+
+func (s *server) validateSelectedImageRefs(ctx context.Context, sc *scripts.Script, form url.Values) error {
+	expanded, err := expandImageVersion(sc, form)
+	if err != nil {
+		return err
+	}
+	scope := imageSelectionScope(sc, expanded)
+	if scope == "" || imageSelectionSkipped(sc, expanded) {
+		return nil
+	}
+	roles := imageSelectionRoles(scope, expanded)
+	if len(roles) == 0 {
+		return nil
+	}
+	refs := selectedImageRefs(sc, expanded, roles)
+	if len(refs) == 0 {
+		return nil
+	}
+	for _, selected := range refs {
+		repo, tag := imageRefParts(selected.ref)
+		expected := scripts.BackendRepo()
+		if selected.role == "frontend" {
+			expected = scripts.FrontendRepo()
+		}
+		if expected == "" {
+			return fmt.Errorf("%s image repository is not configured", selected.role)
+		}
+		if repo != expected {
+			return fmt.Errorf("selected %s image repository %q does not match configured repository %q", selected.role, repo, expected)
+		}
+		if tag == "" {
+			return fmt.Errorf("selected %s image %q has no Docker tag", selected.role, selected.ref)
+		}
+		exists, err := s.selectedImageTagExists(ctx, expected, tag)
+		if err != nil {
+			return fmt.Errorf("cannot verify selected %s image tag %q before action: %w", selected.role, tag, err)
+		}
+		if !exists {
+			return fmt.Errorf("selected %s image tag %q is not published in repository %q", selected.role, tag, expected)
+		}
+	}
+	return nil
+}
+
+func selectedImageRefs(sc *scripts.Script, form url.Values, roles []string) []selectedImageRef {
+	selected := map[string]bool{}
+	for _, role := range roles {
+		selected[role] = true
+	}
+	refs := make([]selectedImageRef, 0, len(roles))
+	add := func(role, name string) {
+		if !selected[role] || !scriptHasField(sc, name) {
+			return
+		}
+		if ref := strings.TrimSpace(form.Get(name)); ref != "" {
+			refs = append(refs, selectedImageRef{role: role, ref: ref})
+		}
+	}
+	add("backend", "backend_image")
+	add("backend", "backend")
+	add("frontend", "frontend_image")
+	add("frontend", "frontend")
+	for _, name := range []string{"_pos_image", "to"} {
+		if !scriptHasField(sc, name) {
+			continue
+		}
+		if ref := strings.TrimSpace(form.Get(name)); ref != "" {
+			for _, role := range roles {
+				refs = append(refs, selectedImageRef{role: role, ref: ref})
+			}
+		}
+	}
+	if len(refs) == 0 {
+		tag := imageTagFromForm(sc, form)
+		if tag != "" {
+			for _, role := range roles {
+				repo := scripts.BackendRepo()
+				if role == "frontend" {
+					repo = scripts.FrontendRepo()
+				}
+				if repo != "" {
+					refs = append(refs, selectedImageRef{role: role, ref: repo + ":" + tag})
+				}
+			}
+		}
+	}
+	return refs
+}
+
+func imageRefParts(ref string) (repo, tag string) {
+	ref = strings.TrimSpace(ref)
+	if at := strings.IndexByte(ref, '@'); at >= 0 {
+		ref = ref[:at]
+	}
+	slash := strings.LastIndexByte(ref, '/')
+	colon := strings.LastIndexByte(ref, ':')
+	if colon <= slash || colon == len(ref)-1 {
+		return ref, ""
+	}
+	return ref[:colon], ref[colon+1:]
 }
 
 func (s *server) compatibleDefaultImageVersion(ctx context.Context, scope, role string) string {

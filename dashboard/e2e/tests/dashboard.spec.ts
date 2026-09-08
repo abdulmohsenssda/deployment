@@ -1053,7 +1053,7 @@ test('full tenant flow warns before selecting a partial latest tag', async ({ pa
   await page.goto(BASE + '/scripts/create-tenant');
   const input = page.locator('input[name="image_version"]');
   await input.fill('latest');
-  const warning = page.locator('[data-image-compatibility]');
+  const warning = input.locator('xpath=..').locator('[data-image-compatibility]');
   await expect(warning).toBeVisible();
   await expect(warning).toContainText('not available for both backend and frontend');
 });
@@ -1075,11 +1075,12 @@ test('role-specific flow accepts backend-only and frontend-only tags', async ({ 
   }));
   await page.goto(BASE + '/scripts/deploy-all');
   const input = page.locator('input[name="image_version"]');
+  const compatibility = input.locator('xpath=..').locator('[data-image-compatibility]');
   await input.fill('v0.0.1');
-  await expect(page.locator('[data-image-compatibility]')).toBeHidden();
+  await expect(compatibility).toBeHidden();
   await page.locator('select[name="type"]').selectOption('frontend');
   await input.fill('latest');
-  await expect(page.locator('[data-image-compatibility]')).toBeHidden();
+  await expect(compatibility).toBeHidden();
 });
 
 test('missing image tag is rejected with visible compatibility feedback', async ({ page }) => {
@@ -1098,7 +1099,7 @@ test('missing image tag is rejected with visible compatibility feedback', async 
   await page.goto(BASE + '/scripts/create-tenant');
   const input = page.locator('input[name="image_version"]');
   await input.fill('missing');
-  const warning = page.locator('[data-image-compatibility]');
+  const warning = input.locator('xpath=..').locator('[data-image-compatibility]');
   await expect(warning).toBeVisible();
   await expect(warning).toContainText('was not found');
 });
@@ -1108,12 +1109,14 @@ test('missing image tag is rejected with visible compatibility feedback', async 
 test('tenant sync form pre-fills a non-empty image tag (deployed version or dev)', async ({ page }) => {
   await login(page);
   await page.goto(BASE + '/tenants/dev-git');
-  const input = page.locator('#tenant-version-form input[name="image_version"]');
-  await expect(input).toBeVisible();
-  // The Sync form must reflect the tenant's selected/deployed tag (or the dev
-  // default) — never blank and never a stale placeholder from an empty catalog.
-  const val = await input.inputValue();
-  expect(val.trim().length).toBeGreaterThan(0);
+  const backendInput = page.locator('#tenant-version-form input[name="backend_image_version"]');
+  const frontendInput = page.locator('#tenant-version-form input[name="frontend_image_version"]');
+  await expect(backendInput).toBeVisible();
+  await expect(frontendInput).toBeVisible();
+  // The Sync form must keep backend and frontend Docker tags explicit. Neither
+  // field may be blank or fall back to a semantic-version placeholder.
+  expect((await backendInput.inputValue()).trim().length).toBeGreaterThan(0);
+  expect((await frontendInput.inputValue()).trim().length).toBeGreaterThan(0);
 });
 
 test('tenant lifecycle start button shows loading + disabled state during action', async ({ page }) => {
@@ -1143,6 +1146,7 @@ test('tenant lifecycle start button shows loading + disabled state during action
 
 test('tenant sync button disables while a sync is streaming', async ({ page }) => {
   await login(page);
+  page.once('dialog', dialog => dialog.accept());
   await page.route('**/scripts/update-tenant/run', async route => {
     await new Promise(r => setTimeout(r, 600));
     route.fulfill({
@@ -1153,7 +1157,8 @@ test('tenant sync button disables while a sync is streaming', async ({ page }) =
   await page.goto(BASE + '/tenants/dev-git');
 
   const syncBtn = page.locator('#tenant-version-form button').first();
-  await page.locator('#tenant-version-form input[name="image_version"]').fill('dev');
+  await page.locator('#tenant-version-form input[name="backend_image_version"]').fill('dev');
+  await page.locator('#tenant-version-form input[name="frontend_image_version"]').fill('dev');
   await syncBtn.click();
   await expect(syncBtn).toBeDisabled();
   await expect(syncBtn).toBeEnabled({ timeout: 4000 });

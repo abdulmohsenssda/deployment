@@ -84,6 +84,39 @@ for file in templates/backend/.github/workflows/deploy.yml \
     done
 done
 
+echo
+echo "=== Dashboard image identity and publication ==="
+for key in \
+    APP_VERSION APP_IMAGE_VERSION APP_IMAGE_TAG APP_IMAGE_CHANNEL \
+    APP_IMAGE_REF APP_IMAGE_COMMIT APP_IMAGE_COMMIT_SHORT \
+    APP_WORKFLOW_RUN_ID APP_WORKFLOW_RUN_URL APP_SOURCE APP_BUILT_AT; do
+    contains dashboard/Dockerfile "$key" "dashboard Dockerfile declares $key"
+done
+for label in \
+    org.opencontainers.image.version \
+    org.opencontainers.image.revision \
+    org.opencontainers.image.source \
+    org.opencontainers.image.created \
+    com.ifritah.build.channel \
+    com.ifritah.build.tag \
+    com.ifritah.build.image_ref \
+    com.ifritah.build.commit \
+    com.ifritah.build.workflow_run_id \
+    com.ifritah.build.workflow_run_url; do
+    contains dashboard/Dockerfile "$label" "dashboard Dockerfile declares $label"
+    contains .github/workflows/dashboard-image.yml "$label" "dashboard workflow publishes $label"
+done
+contains .github/workflows/dashboard-image.yml 'branches: [main]' \
+    "dashboard workflow targets main"
+contains .github/workflows/dashboard-image.yml 'DOCKERHUB_USERNAME is missing or invalid' \
+    "dashboard workflow validates Docker Hub owner"
+contains .github/workflows/dashboard-image.yml 'docker buildx imagetools inspect' \
+    "dashboard workflow verifies published manifests"
+contains dashboard/prod-up.sh 'DASHBOARD_IMAGE_DIGEST' \
+    "dashboard startup resolves the pulled image digest"
+contains dashboard/docker-compose.prod.yml 'APP_IMAGE_DIGEST' \
+    "dashboard compose passes the resolved image digest"
+
 contains scripts/tenant-provenance.sh 'BUILD_WORKFLOW_RUN_ID' \
     "tenant provenance reads workflow run identity"
 contains scripts/tenant-provenance.sh 'BUILD_IMAGE_REF' \
