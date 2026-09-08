@@ -39,6 +39,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/lib.sh"
+source "$SCRIPT_DIR/tenant-provenance.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -84,6 +85,11 @@ GIT_ONLY=false
 DRY_RUN=false
 FORCE_UPDATE=false
 MIGRATE_CMD=""
+DB_BACKUP_ID=""
+DB_BACKUP_ARTIFACT=""
+VERIFY_RETRIES="${TENANT_VERIFY_RETRIES:-15}"
+VERIFY_DELAY="${TENANT_VERIFY_DELAY:-2}"
+declare -A COMPONENT_IDENTITY=()
 declare -a ENV_VARS=()
 
 has_env_var() {
@@ -153,6 +159,16 @@ image_tag() {
     if [[ "$tail" == *:* ]]; then
         printf '%s' "${tail##*:}"
     fi
+}
+
+preflight_tenant_image() {
+    local component="$1" image="$2"
+    ensure_tenant_image_available "$image"
+    if ! resolve_build_identity "$image"; then
+        error "${image}: missing or inconsistent OCI BuildIdentity labels"
+        exit 1
+    fi
+    COMPONENT_IDENTITY["$component"]="$(provenance_identity_tsv)"
 }
 
 find_existing_tenant_network() {
@@ -285,6 +301,15 @@ PUBLIC_TENANT_URL="$(public_tenant_url "$TENANT_NAME")" || exit 1
 export TENANT_NETWORK
 export BACKEND_PORT
 
+if [ -n "$BACKEND_IMAGE" ] || [ -n "$FRONTEND_IMAGE" ]; then
+    if ! ensure_tenant_provenance_schema; then
+        error "Tenant provenance schema is unavailable; refusing an untracked image deployment."
+        exit 1
+    fi
+    [ -z "$BACKEND_IMAGE" ] || preflight_tenant_image backend "$BACKEND_IMAGE"
+    [ -z "$FRONTEND_IMAGE" ] || preflight_tenant_image frontend "$FRONTEND_IMAGE"
+fi
+
 if [ -n "$BACKEND_IMAGE" ] && ! $HAS_DATABASE_URL && ! $HAS_DB_PARTS; then
     if $NO_DATABASE; then
         error "Backend image deploy requires database settings, but --no-database was set and no DATABASE_URL/DB_* env vars were provided."
@@ -351,6 +376,76 @@ if c2 != c:
   nginx -s reload 2>/dev/null || true
 fi
 " 2>&1 || warn "Could not fix nginx upstream for ${app} — tenant may not be accessible until next deploy"
+}
+
+deploy_verified_component() {
+    local component="$1" image="$2" app="${TENANT_NAME}-${1}"
+    local values="${COMPONENT_IDENTITY[$component]}"
+    local channel version commit_sha commit_short workflow image_ref digest built_at
+    local resolved_ref=""
+    IFS=$'\t' read -r channel version commit_sha commit_short workflow image_ref digest built_at <<< "$values"
+    resolved_ref="${image%@*}@${digest}"
+
+    if ! tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+        "" "" "started" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT"; then
+        error "${app}: deployment audit is unavailable; refusing an untracked swap"
+        return 1
+    fi
+
+    dokku config:set --no-restart "$app" \
+        APP_VERSION="$version" \
+        APP_COMMIT="$commit_sha" \
+        APP_COMMIT_SHORT="$commit_short" \
+        APP_BUILD_CHANNEL="$channel" \
+        APP_BUILD_WORKFLOW_RUN="$workflow" \
+        APP_WORKFLOW_RUN="$workflow" \
+        APP_BUILT_AT="$built_at" \
+        APP_BUILD_AT="$built_at" \
+        APP_IMAGE_VERSION="$(image_tag "$image")" \
+        APP_IMAGE_REF="$image" \
+        APP_IMAGE_DIGEST="$digest" \
+        APP_IMAGE_RESOLVED_REF="$resolved_ref"
+
+    if ! dokku_git_from_image "$app" "$image"; then
+        tenant_record_failure "$TENANT_NAME" "$component" "image swap failed" 2>/dev/null || true
+        tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+            "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+            "" "" "failed" "image swap failed" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null || true
+        return 1
+    fi
+
+    local attempt
+    for ((attempt=1; attempt<=VERIFY_RETRIES; attempt++)); do
+        if verify_runtime_identity "$app" "$version" "$commit_sha" "$digest" \
+            "$image_ref" "$channel" "$workflow" "$built_at"; then
+            break
+        fi
+        if [ "$attempt" -eq "$VERIFY_RETRIES" ]; then
+            error "${app}: /version did not report the expected BuildIdentity"
+            error "${app}: automatic rollback is refused; restore backup ${DB_BACKUP_ID:-<none>} explicitly if migrations ran."
+            tenant_record_failure "$TENANT_NAME" "$component" \
+                "post-deploy /version identity verification failed" 2>/dev/null || true
+            tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+                "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+                "" "" "failed" "post-deploy /version identity verification failed" \
+                "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null || true
+            return 1
+        fi
+        sleep "$VERIFY_DELAY"
+    done
+
+    if ! tenant_record_identity "$TENANT_NAME" "$component" "$image" "$image_ref" \
+        "$digest" "$channel" "$version" "$commit_sha" "$commit_short" \
+        "$workflow" "$built_at"; then
+        error "${app}: failed to persist verified deployment identity"
+        tenant_record_failure "$TENANT_NAME" "$component" \
+            "failed to persist verified deployment identity" 2>/dev/null || true
+        return 1
+    fi
+    tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$built_at" \
+        "" "" "verified" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" || return 1
 }
 
 create_dokku_app() {
@@ -616,6 +711,20 @@ SQLEOF
         log "Database ready: $TENANT_DB_NAME"
 
         if [ -n "$BACKEND_IMAGE" ]; then
+            log "Creating verified pre-migration database backup for ${TENANT_NAME}"
+            if ! DB_BACKUP_INFO="$(create_verified_tenant_db_backup "$TENANT_NAME" "$CONFIG_FILE")"; then
+                error "Verified tenant DB backup could not be created; refusing schema initialization."
+                tenant_record_failure "$TENANT_NAME" backend \
+                    "verified pre-migration database backup unavailable" 2>/dev/null || true
+                exit 1
+            fi
+            IFS=$'\t' read -r DB_BACKUP_ID DB_BACKUP_ARTIFACT _ <<< "$DB_BACKUP_INFO"
+            if [ -z "$DB_BACKUP_ID" ] || [ -z "$DB_BACKUP_ARTIFACT" ]; then
+                error "Pre-migration backup identity is incomplete; refusing schema initialization."
+                tenant_record_failure "$TENANT_NAME" backend \
+                    "pre-migration backup identity incomplete" 2>/dev/null || true
+                exit 1
+            fi
             log "Initializing tenant database schema from backend image..."
             bash "$SCRIPT_DIR/init-tenant-db.sh" "$TENANT_NAME" \
                 --schema-only \
@@ -640,30 +749,31 @@ fi
 # CHECKS file into each app's working dir on the dokku host so health checks
 # are configured before first deploy.
 log "Configuring health checks..."
-dokku_shell "mkdir -p /home/dokku/${BACKEND_APP} && echo '/api/health' > /home/dokku/${BACKEND_APP}/CHECKS" || warn "could not seed backend CHECKS"
+dokku_shell "mkdir -p /home/dokku/${BACKEND_APP} && echo '/healthz' > /home/dokku/${BACKEND_APP}/CHECKS" || warn "could not seed backend CHECKS"
 dokku_shell "mkdir -p /home/dokku/${FRONTEND_APP} && echo '/' > /home/dokku/${FRONTEND_APP}/CHECKS" || warn "could not seed frontend CHECKS"
 
 # ---- 9. Deploy (if images provided) ----
 if ! $GIT_ONLY; then
     if [ -n "$BACKEND_IMAGE" ]; then
         log "Deploying backend from image: $BACKEND_IMAGE"
-        ensure_tenant_image_available "$BACKEND_IMAGE"
-        dokku config:set --no-restart "$BACKEND_APP" \
-            APP_IMAGE_VERSION="$(image_tag "$BACKEND_IMAGE")" \
-            APP_IMAGE_REF="$BACKEND_IMAGE"
-        dokku_git_from_image "$BACKEND_APP" "$BACKEND_IMAGE"
+        if ! deploy_verified_component backend "$BACKEND_IMAGE"; then
+            error "Backend deployment failed; tenant is marked failed and no automatic rollback was attempted."
+            exit 1
+        fi
     else
         info "No backend image — deploy later with: git push dokku@${BASE_DOMAIN}:${BACKEND_APP} main"
     fi
 
     if [ -n "$FRONTEND_IMAGE" ]; then
         log "Deploying frontend from image: $FRONTEND_IMAGE"
-        ensure_tenant_image_available "$FRONTEND_IMAGE"
-        dokku config:set --no-restart "$FRONTEND_APP" \
-            APP_IMAGE_VERSION="$(image_tag "$FRONTEND_IMAGE")" \
-            APP_IMAGE_REF="$FRONTEND_IMAGE" \
-            COOKIE_SECURE=false
-        dokku_git_from_image "$FRONTEND_APP" "$FRONTEND_IMAGE"
+        if ! dokku config:set --no-restart "$FRONTEND_APP" COOKIE_SECURE=false; then
+            tenant_record_failure "$TENANT_NAME" frontend "failed to set frontend config" 2>/dev/null || true
+            exit 1
+        fi
+        if ! deploy_verified_component frontend "$FRONTEND_IMAGE"; then
+            error "Frontend deployment failed; tenant is degraded and backend identity was preserved."
+            exit 1
+        fi
 
         # Dokku's nginx config uses the bridge network IP which changes on every container
         # restart. Fix it immediately to use the Docker service hostname on the web network,
@@ -711,12 +821,24 @@ info "Verify once on the host that the wildcard vhost forwards with 'Host \$host
 
 # ---- 12. Run database migration ----
 if [ -n "$MIGRATE_CMD" ] && [ -n "$BACKEND_IMAGE" ]; then
+    if [ -z "$DB_BACKUP_ID" ]; then
+        log "Creating verified pre-migration database backup for ${TENANT_NAME}"
+        if ! DB_BACKUP_INFO="$(create_verified_tenant_db_backup "$TENANT_NAME" "$CONFIG_FILE")"; then
+            error "Verified tenant DB backup could not be created; refusing custom migration."
+            tenant_record_failure "$TENANT_NAME" backend \
+                "verified pre-migration database backup unavailable" 2>/dev/null || true
+            exit 1
+        fi
+        IFS=$'\t' read -r DB_BACKUP_ID DB_BACKUP_ARTIFACT _ <<< "$DB_BACKUP_INFO"
+    fi
     log "Running database migration: $MIGRATE_CMD"
     if dokku run "$BACKEND_APP" $MIGRATE_CMD; then
         log "Migration completed successfully."
     else
-        warn "Migration failed. You may need to run it manually:"
-        warn "  dokku run $BACKEND_APP $MIGRATE_CMD"
+        error "Migration failed; restore backup ${DB_BACKUP_ID} before retrying."
+        tenant_record_failure "$TENANT_NAME" backend \
+            "custom migration failed; restore pre-migration backup before retry" 2>/dev/null || true
+        exit 1
     fi
 elif [ -n "$MIGRATE_CMD" ] && [ -z "$BACKEND_IMAGE" ]; then
     warn "--migrate specified but no backend image deployed yet. Skipping migration."

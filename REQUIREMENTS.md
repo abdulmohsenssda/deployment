@@ -81,6 +81,10 @@ Copy from [config.env.example](config.env.example) and fill:
 - Optional: `PUBLIC_PROTOCOL=https|http` (controls the canonical public link
   scheme and the frontend `API_URL`; production must use `https`),
   `NGINX_CLIENT_MAX_BODY_SIZE=50m`
+- Optional non-production verification controls:
+  `TENANT_PROVENANCE_OVERRIDE=1` together with `DEPLOY_ENV=dev|test|qa|sandbox|simulation`,
+  plus `TENANT_VERIFY_RETRIES` and `TENANT_VERIFY_DELAY`. The override is
+  refused for production deployments.
 
 ---
 
@@ -109,6 +113,13 @@ Rules learned the hard way:
 - Existing-tenant schema replay uses the tenant's `DB_USER`/`DB_PASSWORD`
   account and does not require `MYSQL_ADMIN_PASSWORD`; the deployment account
   is needed only when a tenant database or user must be provisioned.
+- Tenant image updates resolve tags to OCI digests, require the canonical
+  BuildIdentity labels, pass `APP_IMAGE_VERSION`/`APP_IMAGE_COMMIT`,
+  `APP_IMAGE_CHANNEL`, `APP_IMAGE_REF`, `APP_IMAGE_DIGEST`,
+  `APP_WORKFLOW_RUN_ID`, optional `APP_WORKFLOW_RUN_URL`, and `APP_BUILT_AT`
+  to Dokku, and verify the app `/version` response before persisting the new
+  identity. Legacy `APP_VERSION`/`APP_WORKFLOW_RUN` aliases are retained only
+  for migration.
 
 ---
 
@@ -129,7 +140,7 @@ Rules learned the hard way:
   `zatca_master.tenant`.
 - Storage mounts:
   `$STORAGE_ROOT/<tenant>/{uploads,data}` → `/app/{uploads,data}`.
-- CHECKS files seeded: backend `/api/health`, frontend `/`.
+- CHECKS files seeded: backend `/healthz`, frontend `/`.
 
 ---
 

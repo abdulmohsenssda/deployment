@@ -40,6 +40,10 @@
 #   silent HTTP 400 with an empty body from ``purchase_bill.go`` line 173
 #   after the ``INSERT INTO purchase_bill_product`` failed with
 #   ``Error 1054 Unknown column 'cost_price'``.
+# Image updates are provenance-verified and transactional as far as Dokku can
+# make them: backend migrations run before the image swap, every app reports
+# the expected /version identity, and a failed component restores the prior
+# image/config where a prior image exists.
 # =============================================================================
 
 set -euo pipefail
@@ -47,8 +51,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/lib.sh"
+source "$SCRIPT_DIR/tenant-provenance.sh"
 
-# Parse --config early
 CONFIG_FILE="$PROJECT_DIR/config.env"
 for i in $(seq 1 $#); do
     if [ "${!i}" = "--config" ]; then
@@ -60,6 +64,8 @@ done
 
 [ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
 IMAGE_PULL_POLICY="${TENANT_IMAGE_PULL_POLICY:-${IMAGE_PULL_POLICY:-always}}"
+VERIFY_RETRIES="${TENANT_VERIFY_RETRIES:-15}"
+VERIFY_DELAY="${TENANT_VERIFY_DELAY:-2}"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -77,7 +83,16 @@ SCALE=""
 SKIP_DRIFT_CHECK=false
 SKIP_MIGRATIONS=false
 ROUTING_ONLY=false
+MIGRATIONS_APPLIED=false
+DB_BACKUP_ID=""
+DB_BACKUP_ARTIFACT=""
 declare -a ENV_VARS=()
+declare -A COMPONENT_IDENTITY=()
+declare -A COMPONENT_SOURCE=()
+declare -A PREVIOUS_IMAGE=()
+declare -A PREVIOUS_CONFIG=()
+declare -A PREVIOUS_DB_IDENTITY=()
+declare -A DEPLOYED_COMPONENT=()
 
 ensure_update_image_available() {
     local image="$1"
@@ -96,12 +111,12 @@ ensure_update_image_available() {
         never)
             if ! docker image inspect "$image" >/dev/null 2>&1; then
                 error "Image is not present locally and IMAGE_PULL_POLICY=never: $image"
-                exit 1
+                return 1
             fi
             ;;
         *)
             error "IMAGE_PULL_POLICY must be 'always', 'missing', or 'never' (got: $IMAGE_PULL_POLICY)"
-            exit 1
+            return 1
             ;;
     esac
 }
@@ -168,6 +183,195 @@ assert_image_versions_match() {
     log "Image versions match: ${backend_ver} (backend + frontend)"
 }
 
+current_app_image() {
+    local app="$1" image
+    image="$(dokku git:report "$app" 2>/dev/null |
+        awk -F': ' 'tolower($1) ~ /source-image/ {print $2; exit}' || true)"
+    if [ -z "$image" ]; then
+        image="$(dokku config:get "$app" APP_IMAGE_REF 2>/dev/null | awk 'NF {print; exit}' || true)"
+    fi
+    printf '%s' "$image"
+}
+
+capture_runtime_config() {
+    local app="$1" key
+    for key in APP_VERSION APP_COMMIT APP_COMMIT_SHORT APP_BUILD_CHANNEL APP_CHANNEL \
+        APP_IMAGE_CHANNEL APP_BUILD_WORKFLOW_RUN APP_WORKFLOW_RUN \
+        APP_WORKFLOW_RUN_ID APP_WORKFLOW_RUN_URL APP_BUILT_AT APP_BUILD_AT APP_CREATED \
+        APP_IMAGE_REF APP_IMAGE_DIGEST APP_IMAGE_RESOLVED_REF APP_IMAGE_VERSION \
+        APP_IMAGE_COMMIT APP_SOURCE APP_DEPLOYED_AT; do
+        PREVIOUS_CONFIG["$app:$key"]="$(dokku config:get "$app" "$key" 2>/dev/null || true)"
+    done
+}
+
+restore_runtime_config() {
+    local app="$1" key value
+    local -a set_args=() unset_args=()
+    for key in APP_VERSION APP_COMMIT APP_COMMIT_SHORT APP_BUILD_CHANNEL APP_CHANNEL \
+        APP_IMAGE_CHANNEL APP_BUILD_WORKFLOW_RUN APP_WORKFLOW_RUN \
+        APP_WORKFLOW_RUN_ID APP_WORKFLOW_RUN_URL APP_BUILT_AT APP_BUILD_AT APP_CREATED \
+        APP_IMAGE_REF APP_IMAGE_DIGEST APP_IMAGE_RESOLVED_REF APP_IMAGE_VERSION \
+        APP_IMAGE_COMMIT APP_SOURCE APP_DEPLOYED_AT; do
+        value="${PREVIOUS_CONFIG["$app:$key"]:-}"
+        if [ -n "$value" ]; then
+            set_args+=("$key=$value")
+        else
+            unset_args+=("$key")
+        fi
+    done
+    [ "${#set_args[@]}" -eq 0 ] || dokku config:set --no-restart "$app" "${set_args[@]}" || true
+    [ "${#unset_args[@]}" -eq 0 ] || dokku config:unset --no-restart "$app" "${unset_args[@]}" || true
+}
+
+record_failure() {
+    local component="$1" requested="$2" message="$3"
+    local values="${COMPONENT_IDENTITY[$component]:-}"
+    local channel="" version="" commit_sha="" commit_short="" workflow="" workflow_url=""
+    local image_ref="" digest="" built_at="" previous_ref="" previous_digest=""
+    if [ -n "$values" ]; then
+        IFS=$'\t' read -r channel version commit_sha commit_short workflow workflow_url \
+            image_ref digest built_at <<< "$values"
+    fi
+    local resolved_ref="${requested%@*}@${digest}"
+    IFS=$'\t' read -r previous_ref previous_digest _ <<< "${PREVIOUS_DB_IDENTITY[$component]:-}"
+    tenant_record_failure "$TENANT_NAME" "$component" "$message" 2>/dev/null || true
+    tenant_record_audit "$TENANT_NAME" "$component" "$requested" "$resolved_ref" "$digest" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
+        "$previous_ref" "$previous_digest" "failed" "$message" \
+        "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null || true
+}
+
+rollback_component() {
+    local component="$1" app image
+    app="${TENANT_NAME}-${component}"
+    image="${PREVIOUS_IMAGE[$component]:-}"
+    if [ "$component" = "backend" ] && $MIGRATIONS_APPLIED; then
+        error "${app}: automatic image rollback refused after migrations; restoring the image alone cannot restore DB schema/data."
+        error "Restore verified backup ${DB_BACKUP_ID:-<unknown>} (${DB_BACKUP_ARTIFACT:-<unknown>}) explicitly, then retry the rollback."
+        tenant_record_failure "$TENANT_NAME" "$component" \
+            "rollback refused: database migrations applied; explicit backup restore required" 2>/dev/null || true
+        return 2
+    fi
+    if [ -z "$image" ]; then
+        warn "${app}: no previous image is recorded; cannot perform image rollback"
+        restore_runtime_config "$app"
+        return 1
+    fi
+    log "Rolling back ${app} to ${image}"
+    if ! dokku_git_from_image "$app" "$image"; then
+        error "${app}: rollback failed"
+        restore_runtime_config "$app"
+        return 1
+    fi
+    restore_runtime_config "$app"
+    IFS=$'\t' read -r old_ref old_digest _ <<< "${PREVIOUS_DB_IDENTITY[$component]:-}"
+    if [ -n "$old_ref" ] || [ -n "$old_digest" ]; then
+        # Keep the durable current identity equal to the last-known-good image.
+        IFS=$'\t' read -r old_ref old_digest old_channel old_version old_commit \
+            old_short old_workflow old_workflow_url old_built <<< "${PREVIOUS_DB_IDENTITY[$component]}"
+        tenant_record_identity "$TENANT_NAME" "$component" "$old_ref" "$old_ref" \
+            "$old_digest" "$old_channel" "$old_version" "$old_commit" "$old_short" \
+            "$old_workflow" "$old_workflow_url" "$old_built" 2>/dev/null || true
+    else
+        tenant_clear_identity "$TENANT_NAME" "$component" "deployment rolled back; no prior verified identity" 2>/dev/null || true
+    fi
+    return 0
+}
+
+verify_component() {
+    local component="$1" app="$2" values="$3"
+    local channel version commit_sha commit_short workflow workflow_url image_ref digest built_at
+    IFS=$'\t' read -r channel version commit_sha commit_short workflow workflow_url \
+        image_ref digest built_at <<< "$values"
+    local attempt
+    for ((attempt=1; attempt<=VERIFY_RETRIES; attempt++)); do
+        if verify_runtime_identity "$app" "$version" "$commit_sha" "$digest" \
+            "$image_ref" "$channel" "$workflow" "$workflow_url" "$built_at"; then
+            return 0
+        fi
+        [ "$attempt" -lt "$VERIFY_RETRIES" ] && sleep "$VERIFY_DELAY"
+    done
+    error "${app}: /version did not report the expected BuildIdentity"
+    return 1
+}
+
+deploy_component() {
+    local component="$1" image="$2" app="${TENANT_NAME}-${1}"
+    local values="${COMPONENT_IDENTITY[$component]}"
+    local channel version commit_sha commit_short workflow workflow_url image_ref digest built_at
+    local resolved_ref="${image%@*}@${digest}"
+    IFS=$'\t' read -r channel version commit_sha commit_short workflow workflow_url \
+        image_ref digest built_at <<< "$values"
+
+    if ! tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
+        "${PREVIOUS_IMAGE[$component]:-}" \
+        "$(printf '%s' "${PREVIOUS_DB_IDENTITY[$component]:-}" | cut -f2)" \
+        "started" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null; then
+        error "${app}: deployment audit is unavailable; refusing an untracked swap"
+        record_failure "$component" "$image" "deployment audit start failed"
+        return 1
+    fi
+
+    log "Deploying ${component}: ${image} (${digest})"
+    local resolved_ref="${image%@*}@${digest}"
+    if ! dokku config:set --no-restart "$app" \
+        APP_VERSION="$version" \
+        APP_COMMIT="$commit_sha" \
+        APP_COMMIT_SHORT="$commit_short" \
+        APP_BUILD_CHANNEL="$channel" \
+        APP_CHANNEL="$channel" \
+        APP_IMAGE_CHANNEL="$channel" \
+        APP_SOURCE="${COMPONENT_SOURCE[$component]:-}" \
+        APP_WORKFLOW_RUN_ID="$workflow" \
+        APP_WORKFLOW_RUN_URL="$workflow_url" \
+        APP_BUILD_WORKFLOW_RUN="$workflow" \
+        APP_WORKFLOW_RUN="$workflow" \
+        APP_BUILT_AT="$built_at" \
+        APP_BUILD_AT="$built_at" \
+        APP_CREATED="$built_at" \
+        APP_IMAGE_VERSION="$version" \
+        APP_IMAGE_COMMIT="$commit_sha" \
+        APP_IMAGE_REF="$image_ref" \
+        APP_IMAGE_DIGEST="$digest" \
+        APP_IMAGE_RESOLVED_REF="$resolved_ref" \
+        APP_DEPLOYED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; then
+        record_failure "$component" "$image" "failed to set runtime identity"
+        restore_runtime_config "$app"
+        return 1
+    fi
+    if ! dokku_git_from_image "$app" "$image"; then
+        record_failure "$component" "$image" "Dokku image swap failed"
+        rollback_component "$component" || true
+        return 1
+    fi
+    if ! verify_component "$component" "$app" "$values"; then
+        record_failure "$component" "$image" "post-deploy /version identity verification failed"
+        rollback_component "$component" || true
+        return 1
+    fi
+    if ! tenant_record_identity "$TENANT_NAME" "$component" "$image" "$image_ref" \
+        "$digest" "$channel" "$version" "$commit_sha" "$commit_short" \
+        "$workflow" "$workflow_url" "$built_at"; then
+        record_failure "$component" "$image" "failed to persist verified deployment identity"
+        rollback_component "$component" || true
+        return 1
+    fi
+    if ! tenant_record_audit "$TENANT_NAME" "$component" "$image" "$resolved_ref" "$digest" \
+        "$channel" "$version" "$commit_sha" "$commit_short" "$workflow" "$workflow_url" "$built_at" \
+        "${PREVIOUS_IMAGE[$component]:-}" \
+        "$(printf '%s' "${PREVIOUS_DB_IDENTITY[$component]:-}" | cut -f2)" \
+        "verified" "" "$DB_BACKUP_ID" "$DB_BACKUP_ARTIFACT" 2>/dev/null; then
+        error "${app}: failed to record successful deployment audit"
+        rollback_component "$component" || true
+        record_failure "$component" "$image" "deployment audit completion failed"
+        return 1
+    fi
+    DEPLOYED_COMPONENT["$component"]=1
+    return 0
+
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --backend-image)     BACKEND_IMAGE="$2"; shift 2 ;;
@@ -185,12 +389,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$TENANT_NAME" ]; then
-    echo "Usage: $0 <tenant-name> [options]"
+    echo "Usage: $0 <tenant-name> [--backend-image <image>] [--frontend-image <image>]"
     exit 1
 fi
-
 TENANT_NAME="$(tenant_full_name "$TENANT_NAME")" || exit 1
-
 BASE_DOMAIN="${BASE_DOMAIN:?BASE_DOMAIN not set in config.env}"
 PUBLIC_TENANT_URL="$(public_tenant_url "$TENANT_NAME")" || exit 1
 
@@ -209,6 +411,13 @@ if $ROUTING_ONLY; then
 fi
 
 # ---- Set env vars ----
+
+if [ -n "$BACKEND_IMAGE" ] || [ -n "$FRONTEND_IMAGE" ]; then
+    if ! ensure_tenant_provenance_schema; then
+        error "Tenant provenance schema is unavailable; refusing an untracked deployment."
+        exit 1
+    fi
+fi
 for ev in "${ENV_VARS[@]+"${ENV_VARS[@]}"}"; do
     if [[ "$ev" == *"="* ]]; then
         log "Setting env: $ev"
@@ -218,7 +427,7 @@ done
 
 # ---- Deploy new images ----
 # Pull each image first so image_version_label can inspect the manifest, then
-# run the drift preflight before swapping either app to a mismatched image.
+# run the drift preflight before the provenance-verified swaps.
 if [ -n "$BACKEND_IMAGE" ]; then
     ensure_update_image_available "$BACKEND_IMAGE"
 fi
@@ -228,53 +437,92 @@ fi
 
 assert_image_versions_match
 
-# ---- Apply schema/migrations from the new backend image ----
-# The tenant's DB was initialised via init-tenant-db.sh at provisioning time
-# and has been frozen at that schema ever since. If the backend image has
-# advanced through new migrations (e.g. columns added to purchase_bill_product
-# in ifritah-go#53), the running container will fail every INSERT that
-# references the new columns and return an empty-body 400 (see
-# pkg/handlers/purchase_bill.go finalizePurchaseBill line ~173). Every
-# migration in pkg/db/migrations/*.sql is idempotent (information_schema
-# guards on ALTERs), so re-applying the full set is a no-op where the DB is
-# already current, and a fix-up where it is not.
-if [ -n "$BACKEND_IMAGE" ] && [ "$SKIP_MIGRATIONS" != "true" ]; then
-    log "Applying schema/migrations from ${BACKEND_IMAGE} (idempotent)"
-    if ! "$SCRIPT_DIR/init-tenant-db.sh" "$TENANT_NAME" \
-        --schema-only \
-        --backend-image "$BACKEND_IMAGE" \
-        --config "$CONFIG_FILE"; then
-        error "Migration replay failed; refusing to swap the container onto a"
-        error "possibly-incompatible schema. Fix the DB (or pass --skip-migrations"
-        error "if you know the schema is already correct for the target image)"
-        error "and re-run update-tenant.sh."
+for component in backend frontend; do
+    image="${component^^}_IMAGE"
+    image="${!image:-}"
+    [ -n "$image" ] || continue
+    app="${TENANT_NAME}-${component}"
+    PREVIOUS_IMAGE["$component"]="$(current_app_image "$app")"
+    capture_runtime_config "$app"
+    PREVIOUS_DB_IDENTITY["$component"]="$(tenant_current_identity "$TENANT_NAME" "$component" || true)"
+    if ! ensure_update_image_available "$image"; then
+        record_failure "$component" "$image" "image pull/availability check failed"
         exit 1
+    fi
+    if ! resolve_build_identity "$image"; then
+        error "${image}: missing or inconsistent OCI BuildIdentity labels"
+        record_failure "$component" "$image" "missing or inconsistent OCI BuildIdentity labels"
+        exit 1
+    fi
+    COMPONENT_IDENTITY["$component"]="$(provenance_identity_tsv)"
+    COMPONENT_SOURCE["$component"]="$BUILD_SOURCE"
+done
+
+if [ -n "$BACKEND_IMAGE" ]; then
+    if $SKIP_MIGRATIONS && ! provenance_override_enabled; then
+        error "--skip-migrations is only allowed with TENANT_PROVENANCE_OVERRIDE=1 in a non-production environment."
+        record_failure backend "$BACKEND_IMAGE" "unsafe migration bypass refused"
+        exit 1
+    fi
+    if ! $SKIP_MIGRATIONS; then
+        log "Creating verified pre-migration database backup for ${TENANT_NAME}"
+        if ! DB_BACKUP_INFO="$(create_verified_tenant_db_backup "$TENANT_NAME" "$CONFIG_FILE")"; then
+            error "Verified tenant DB backup could not be created; refusing migrations and image swap."
+            record_failure backend "$BACKEND_IMAGE" "verified pre-migration database backup unavailable"
+            exit 1
+        fi
+        IFS=$'\t' read -r DB_BACKUP_ID DB_BACKUP_ARTIFACT _ <<< "$DB_BACKUP_INFO"
+        if [ -z "$DB_BACKUP_ID" ] || [ -z "$DB_BACKUP_ARTIFACT" ]; then
+            error "Pre-migration backup identity is incomplete; refusing migrations and image swap."
+            record_failure backend "$BACKEND_IMAGE" "pre-migration backup identity incomplete"
+            exit 1
+        fi
+        log "Verified DB backup: ${DB_BACKUP_ID}"
+        log "Replaying schema/migrations from ${BACKEND_IMAGE} before backend swap"
+        if ! "$SCRIPT_DIR/init-tenant-db.sh" "$TENANT_NAME" \
+            --schema-only --backend-image "$BACKEND_IMAGE" --config "$CONFIG_FILE"; then
+            error "Migration replay failed; refusing to swap the backend image."
+            error "Restore verified backup ${DB_BACKUP_ID} (${DB_BACKUP_ARTIFACT}) before retrying."
+            record_failure backend "$BACKEND_IMAGE" \
+                "migration replay failed; restore pre-migration backup before retry"
+            exit 1
+        fi
+        MIGRATIONS_APPLIED=true
+    else
+        warn "Skipping backend migrations under explicit non-production override."
+        tenant_record_audit "$TENANT_NAME" backend "$BACKEND_IMAGE" "" "" \
+            "" "" "" "" "" "" "" "" "override" \
+            "--skip-migrations under non-production override" "" "" 2>/dev/null || true
     fi
 fi
 
 if [ -n "$BACKEND_IMAGE" ]; then
-    log "Deploying backend: $BACKEND_IMAGE"
-    dokku config:set --no-restart "$BACKEND_APP" \
-        APP_IMAGE_VERSION="$(image_tag "$BACKEND_IMAGE")" \
-        APP_IMAGE_REF="$BACKEND_IMAGE"
-    dokku_git_from_image "$BACKEND_APP" "$BACKEND_IMAGE"
+    if ! deploy_component backend "$BACKEND_IMAGE"; then
+        exit 1
+    fi
 fi
-
 if [ -n "$FRONTEND_IMAGE" ]; then
-    log "Deploying frontend: $FRONTEND_IMAGE"
-    dokku config:set --no-restart "$FRONTEND_APP" \
-        APP_IMAGE_VERSION="$(image_tag "$FRONTEND_IMAGE")" \
-        APP_IMAGE_REF="$FRONTEND_IMAGE"
-    dokku_git_from_image "$FRONTEND_APP" "$FRONTEND_IMAGE"
+    if ! deploy_component frontend "$FRONTEND_IMAGE"; then
+        if [ -n "${DEPLOYED_COMPONENT[backend]:-}" ]; then
+            if $MIGRATIONS_APPLIED; then
+                error "Frontend failed after backend migration/swap; backend remains deployed and tenant is degraded."
+                error "Automatic backend rollback is refused because it cannot restore database schema/data from the backup."
+                tenant_record_failure "$TENANT_NAME" frontend \
+                    "frontend swap failed; backend retained because DB rollback is not automatic" 2>/dev/null || true
+            else
+                warn "Frontend failed after backend swap; restoring backend last-known-good image."
+                rollback_component backend || true
+            fi
+        fi
+        exit 1
+    fi
 fi
 
-# ---- Scale ----
 if [ -n "$SCALE" ]; then
     log "Scaling backend to $SCALE instances"
     dokku ps:scale "$BACKEND_APP" web="$SCALE"
 fi
 
-# ---- Restart ----
 if $RESTART; then
     log "Restarting tenant..."
     dokku ps:restart "$BACKEND_APP"
@@ -287,4 +535,4 @@ else
     fi
 fi
 
-log "Done. Check status: dokku ps:report $BACKEND_APP"
+log "Done. Verified deployment identity persisted for ${TENANT_NAME}."

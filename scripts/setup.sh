@@ -389,12 +389,84 @@ CREATE TABLE IF NOT EXISTS tenant (
     enabled         TINYINT(1)    NOT NULL DEFAULT 1 COMMENT '0 = paused',
     backend_image   VARCHAR(255)  NOT NULL DEFAULT '' COMMENT 'Per-tenant override (empty = use global latest)',
     frontend_image  VARCHAR(255)  NOT NULL DEFAULT '' COMMENT 'Per-tenant override (empty = use global latest)',
+    backend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    frontend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    backend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    frontend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    backend_channel VARCHAR(64) NOT NULL DEFAULT '',
+    frontend_channel VARCHAR(64) NOT NULL DEFAULT '',
+    backend_version VARCHAR(128) NOT NULL DEFAULT '',
+    frontend_version VARCHAR(128) NOT NULL DEFAULT '',
+    backend_commit VARCHAR(128) NOT NULL DEFAULT '',
+    frontend_commit VARCHAR(128) NOT NULL DEFAULT '',
+    backend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
+    frontend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
+    backend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
+    frontend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
+    backend_built_at VARCHAR(64) NOT NULL DEFAULT '',
+    frontend_built_at VARCHAR(64) NOT NULL DEFAULT '',
+    backend_deployed_at TIMESTAMP NULL DEFAULT NULL,
+    frontend_deployed_at TIMESTAMP NULL DEFAULT NULL,
+    backend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    frontend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    backend_deployment_error TEXT NULL,
+    frontend_deployment_error TEXT NULL,
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_enabled (enabled)
 ) ENGINE=InnoDB;
 -- Add columns if upgrading from older schema
 ALTER TABLE tenant ADD COLUMN IF NOT EXISTS backend_image  VARCHAR(255) NOT NULL DEFAULT '';
 ALTER TABLE tenant ADD COLUMN IF NOT EXISTS frontend_image VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE tenant
+    ADD COLUMN IF NOT EXISTS backend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_channel VARCHAR(64) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_channel VARCHAR(64) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_version VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_version VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_commit VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_commit VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_built_at VARCHAR(64) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS frontend_built_at VARCHAR(64) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backend_deployed_at TIMESTAMP NULL DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS frontend_deployed_at TIMESTAMP NULL DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS backend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    ADD COLUMN IF NOT EXISTS frontend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    ADD COLUMN IF NOT EXISTS backend_deployment_error TEXT NULL,
+    ADD COLUMN IF NOT EXISTS frontend_deployment_error TEXT NULL;
+CREATE TABLE IF NOT EXISTS tenant_deployment_audit (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    tenant_name VARCHAR(100) NOT NULL,
+    app_type VARCHAR(16) NOT NULL,
+    requested_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    resolved_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    channel VARCHAR(64) NOT NULL DEFAULT '',
+    semantic_version VARCHAR(128) NOT NULL DEFAULT '',
+    commit_sha VARCHAR(128) NOT NULL DEFAULT '',
+    commit_short VARCHAR(32) NOT NULL DEFAULT '',
+    workflow_run VARCHAR(128) NOT NULL DEFAULT '',
+    built_at VARCHAR(64) NOT NULL DEFAULT '',
+    previous_image_ref VARCHAR(512) NOT NULL DEFAULT '',
+    previous_image_digest VARCHAR(255) NOT NULL DEFAULT '',
+    backup_id VARCHAR(255) NOT NULL DEFAULT '',
+    backup_db_artifact VARCHAR(512) NOT NULL DEFAULT '',
+    status VARCHAR(32) NOT NULL,
+    error_message TEXT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL DEFAULT NULL,
+    INDEX idx_tenant_deployment_audit_tenant (tenant_name, started_at),
+    INDEX idx_tenant_deployment_audit_status (status, started_at)
+) ENGINE=InnoDB;
+ALTER TABLE tenant_deployment_audit
+    ADD COLUMN IF NOT EXISTS backup_id VARCHAR(255) NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS backup_db_artifact VARCHAR(512) NOT NULL DEFAULT '';
 SQLEOF
 
     log "Master database ready: ${MYSQL_MASTER_DB}.tenant"
@@ -449,14 +521,14 @@ if [ -n "$DOCKERHUB_USERNAME" ]; then
     log "Setting up auto-deploy from Docker Hub..."
 
     # ---- 8a: Polling cron (safety net, checks every 2 min) ----
-    CRON_LINE="*/2 * * * * $SCRIPT_DIR/auto-pull.sh --config $CONFIG_FILE >> /var/log/auto-pull.log 2>&1"
-    if crontab -l 2>/dev/null | grep -qF "auto-pull.sh"; then
-        log "Auto-pull cron already installed."
+    mkdir -p "$(auto_pull_state_dir)"
+    if ensure_auto_pull_schedule "$SCRIPT_DIR/auto-pull.sh" "$CONFIG_FILE"; then
+        log "Auto-pull cron installed and verified (checks Docker Hub every 2 min)."
     else
-        (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
-        log "Auto-pull cron installed (checks Docker Hub every 2 min)."
+        error "Auto-pull cron could not be installed or verified."
+        error "Run: sudo bash $SCRIPT_DIR/setup.sh --config $CONFIG_FILE"
+        exit 1
     fi
-    mkdir -p /var/lib/auto-pull
 
     # ---- 8c: Daily backup cron (3am) ----
     BACKUP_CRON="0 3 * * * $SCRIPT_DIR/backup-tenant.sh --all --config $CONFIG_FILE >> /var/log/tenant-backup.log 2>&1"

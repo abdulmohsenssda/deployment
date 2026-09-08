@@ -25,7 +25,12 @@
     <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
     <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
     <div class="rc-meta">{{probeMessage .Probe}}</div>
-    <div class="rc-meta">Port {{or .IntPort "—"}}</div>
+    <div class="rc-meta">channel {{or .Channel .Version "—"}} · version {{or .Version "—"}}</div>
+    <div class="rc-meta">ref {{or .ImageRef .Image "—"}}</div>
+    <div class="rc-meta">digest {{or .ResolvedDigest "—"}} · commit {{or .SourceCommit "—"}}</div>
+    <div class="rc-meta">deployed {{or .DeployedAt "—"}} · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}} · port {{or .IntPort "—"}}</div>
+    <div class="rc-meta">last operation {{or .LastOperation "—"}}</div>
+    {{if .LastFailure}}<div class="release-failure">failure: {{.LastFailure}}</div>{{end}}
     {{if appDetailURL .Name}}
     <a href="{{appDetailURL .Name}}" class="app-detail-link">View backend app details ↗</a>
     {{else}}
@@ -52,6 +57,12 @@
     <div class="rc-meta">Health: <span class="badge {{probeClr .Probe.Status}}">{{probeLabel .Probe}}</span> · HTTP {{or .Probe.HTTPCode .HTTPCode "000"}}</div>
     <div class="rc-meta">Checked {{probeTime .Probe.CheckedAt}}</div>
     <div class="rc-meta">{{probeMessage .Probe}}</div>
+    <div class="rc-meta">channel {{or .Channel .Version "—"}} · version {{or .Version "—"}}</div>
+    <div class="rc-meta">ref {{or .ImageRef .Image "—"}}</div>
+    <div class="rc-meta">digest {{or .ResolvedDigest "—"}} · commit {{or .SourceCommit "—"}}</div>
+    <div class="rc-meta">deployed {{or .DeployedAt "—"}} · {{join .Domains " · "}}</div>
+    <div class="rc-meta">last operation {{or .LastOperation "—"}}</div>
+    {{if .LastFailure}}<div class="release-failure">failure: {{.LastFailure}}</div>{{end}}
     <div class="rc-meta">{{join .Domains " · "}}</div>
     {{if appDetailURL .Name}}
     <a href="{{appDetailURL .Name}}" class="app-detail-link">View frontend app details ↗</a>
@@ -85,6 +96,14 @@
       </p>
     </div>
   </div>
+
+  {{if or (not .Snapshot.Healthy) .Snapshot.Error}}
+  <div class="alert alert-warn" style="margin-bottom:16px">
+    <strong>Dashboard health/provenance warning:</strong>
+    {{if not .Snapshot.Healthy}} Dokku health is not confirmed.{{end}}
+    {{if .Snapshot.Error}} {{.Snapshot.Error}}{{end}}
+  </div>
+  {{end}}
 </div>
 
 <!-- Actions row -->
@@ -94,12 +113,22 @@
     <div class="panel-title">Sync Version</div>
     <form id="tenant-version-form" class="sync-form">
       <input type="hidden" name="_pos_name" value="{{.Tenant}}">
-      <div style="position:relative;flex:1;min-width:160px">
-        <input id="input-image_version" type="text" name="image_version"
-               value="{{.DefaultVersion}}" placeholder="e.g. v1.2.3 or feature-branch"
+      <input type="hidden" name="image_version" value="">
+      <div style="position:relative;flex:1;min-width:180px">
+        <label class="field-label">Backend channel/tag</label>
+        <input id="input-backend_image_version" type="text" name="backend_image_version"
+               value="{{.DefaultVersion}}" placeholder="dev or v1.2.3"
                class="form-input" style="width:100%" autocomplete="off"
-               data-tag-search data-image-scope="both" required aria-label="Image version">
-        <datalist id="dl-image_version"></datalist>
+               data-tag-search required>
+        <datalist id="dl-backend_image_version"></datalist>
+      </div>
+      <div style="position:relative;flex:1;min-width:180px">
+        <label class="field-label">Frontend channel/tag</label>
+        <input id="input-frontend_image_version" type="text" name="frontend_image_version"
+               value="{{.DefaultVersion}}" placeholder="dev or v1.2.3"
+               class="form-input" style="width:100%" autocomplete="off"
+               data-tag-search data-image-scope="frontend" required aria-label="Frontend image version">
+        <datalist id="dl-frontend_image_version"></datalist>
         <p data-image-compatibility class="field-help image-compatibility" hidden></p>
       </div>
       <button type="submit" class="btn btn-primary" aria-controls="tenant-out" aria-busy="false">Sync</button>
@@ -412,11 +441,16 @@
     ev.preventDefault();
     const button = form.querySelector('button[type="submit"]');
     if (syncBusy || button?.disabled) return;
-    const imageInput = form.elements.image_version;
-    if (imageInput && !imageInput.checkValidity()) {
-      imageInput.reportValidity();
+    const backendInput = form.elements.backend_image_version;
+    const frontendInput = form.elements.frontend_image_version;
+    if ((backendInput && !backendInput.checkValidity()) ||
+        (frontendInput && !frontendInput.checkValidity())) {
+      (backendInput && !backendInput.checkValidity() ? backendInput : frontendInput).reportValidity();
       return;
     }
+    const backend = backendInput?.value || 'dev';
+    const frontend = frontendInput?.value || 'dev';
+    if (!confirm('Sync tenant ' + tenant + ' with backend ' + backend + ' and frontend ' + frontend + '?')) return;
     syncBusy = true;
     const prevLabel = button ? button.textContent : '';
     if (button) {

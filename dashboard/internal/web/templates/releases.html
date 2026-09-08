@@ -19,15 +19,23 @@
         <span class="release-tag">{{.Tag}}</span>
         {{if eq .Tag $.DefaultVersion}}<span class="release-default">default</span>{{end}}
       </div>
-      <span class="release-pill {{if .Broken}}broken{{else}}ok{{end}}">{{if .Broken}}broken{{else}}{{.Status}}{{end}}</span>
+      <span class="release-pill {{if or .Broken (not .Ready)}}broken{{else}}ok{{end}}">{{if .Broken}}broken{{else if not .Ready}}not-ready{{else}}{{.Status}}{{end}}</span>
     </div>
     <h3>{{if .Title}}{{.Title}}{{else}}{{.Tag}}{{end}}</h3>
     {{if .Date}}<p class="release-date">{{.Date}}</p>{{end}}
+    <p class="release-date">Channel: {{or .Channel "release"}} · backend {{.BackendVersion}} · frontend {{.FrontendVersion}}</p>
     <p class="release-date">Deployed apps: {{.Deployed}}{{if .Failed}} · failed: {{.Failed}}{{end}}</p>
     {{if .FailureSummary}}<p class="release-failure">{{.FailureSummary}}</p>{{end}}
+    {{if not .Ready}}
+    <p class="release-failure">Not ready: {{join .ValidationErrors "; "}}</p>
+    {{end}}
     <dl class="release-images">
-      <div><dt>Backend</dt><dd>{{.BackendImage}}</dd></div>
-      <div><dt>Frontend</dt><dd>{{.FrontendImage}}</dd></div>
+      <div><dt>Backend ref</dt><dd>{{.BackendImage}}</dd></div>
+      <div><dt>Backend digest</dt><dd>{{or .BackendDigest "—"}}</dd></div>
+      <div><dt>Backend commit</dt><dd>{{or .BackendSourceCommit "—"}}</dd></div>
+      <div><dt>Frontend ref</dt><dd>{{.FrontendImage}}</dd></div>
+      <div><dt>Frontend digest</dt><dd>{{or .FrontendDigest "—"}}</dd></div>
+      <div><dt>Frontend commit</dt><dd>{{or .FrontendSourceCommit "—"}}</dd></div>
     </dl>
     <ul class="release-notes">
       {{range .Notes}}

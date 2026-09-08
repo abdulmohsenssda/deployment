@@ -56,7 +56,7 @@
         <input type="password" name="{{.Name}}" placeholder="{{.Placeholder}}"
           autocomplete="new-password" {{if .Required}}required{{end}} class="form-input">
       {{else}}
-        {{if or (eq .Name "image_version") .ImageScope}}
+        {{if or (eq .Name "image_version") (eq .Name "backend_image_version") (eq .Name "frontend_image_version") .ImageScope}}
         <div style="position:relative">
           <input type="text" name="{{.Name}}" placeholder="{{.Placeholder}}"
             value="{{if .ImageScope}}{{$.DefaultVersion}}{{else}}{{.Default}}{{end}}" autocomplete="off"
@@ -224,9 +224,33 @@
         if (el.type === 'checkbox') el.checked = value === '1' || value === 'true';
         else el.value = value;
       }
+      if (key === 'image_version') {
+        for (const name of ['backend_image_version', 'frontend_image_version']) {
+          if (!params.has(name) && form.elements[name]) form.elements[name].value = value;
+        }
+      }
     });
   }
   applyQueryPrefill();
+
+  // Populate every component selector from Docker Hub live tags. The legacy
+  // image_version field remains supported for callers that select one pair.
+  fetch('/api/image-tags')
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data?.tags?.length) return;
+      document.querySelectorAll('[data-tag-search]').forEach(input => {
+        const dl = document.getElementById('dl-' + input.name);
+        if (!dl) return;
+        dl.innerHTML = '';
+        data.tags.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t;
+          dl.appendChild(o);
+        });
+      });
+    })
+    .catch(() => {});
 
   function selectedRelease() {
     const select = form.elements.image_version;
@@ -243,9 +267,11 @@
     hint.classList.toggle('broken', !!release.Broken);
     hint.querySelector('[data-version-title]').textContent = release.Tag + (release.Title && release.Title !== release.Tag ? ' — ' + release.Title : '');
     const statusEl = hint.querySelector('[data-version-status]');
-    statusEl.textContent = release.Broken ? 'broken' : (release.Status || 'ready');
-    statusEl.className = 'badge ' + (release.Broken ? 'badge-danger' : 'badge-success');
-    hint.querySelector('[data-version-notes]').textContent = (release.Notes || []).slice(0, 2).join(' ') || 'No release notes for this version.';
+    const ready = !!release.Ready && !release.Broken;
+    statusEl.textContent = release.Broken ? 'broken' : (ready ? (release.Status || 'ready') : 'not-ready');
+    statusEl.className = 'badge ' + (release.Broken || !ready ? 'badge-danger' : 'badge-success');
+    const reasons = (release.ValidationErrors || []).slice(0, 3).join(' ');
+    hint.querySelector('[data-version-notes]').textContent = reasons || (release.Notes || []).slice(0, 2).join(' ') || 'No release notes for this version.';
   }
 
   form.elements.image_version?.addEventListener('change', renderVersionHint);
@@ -339,6 +365,11 @@
       imageInput.reportValidity();
       return;
     }
+    if (danger && !confirm('This script may modify or delete data. Continue?')) return;
+    const release = selectedRelease();
+    if (release?.Broken && !confirm('Version ' + release.Tag + ' is marked broken. Continue?')) return;
+    if (release && !release.Ready && !confirm('Version ' + release.Tag + ' is not validated. Continue anyway?')) return;
+    persistOnSubmit();
     void runCommand();
   });
 })();
