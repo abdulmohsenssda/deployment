@@ -195,12 +195,13 @@ provenance_json_field() {
 }
 
 app_version_response() {
-    local app="$1" container="${DOKKU_CONTAINER:-dokku}" response
+    local app="$1" container="${DOKKU_CONTAINER:-dokku}" port response
+    port="$(dokku_app_port "$app")"
     response="$(docker exec -i "$container" sh -lc \
-        "curl -fsS --max-time 10 http://${app}.web/version" 2>/dev/null || true)"
+        "curl -fsS --max-time 10 http://${app}.web:${port}/version" 2>/dev/null || true)"
     if [ -z "$response" ]; then
         response="$(docker exec -i "$container" sh -lc \
-            "wget -qO- -T 10 http://${app}.web/version" 2>/dev/null || true)"
+            "wget -qO- -T 10 http://${app}.web:${port}/version" 2>/dev/null || true)"
     fi
     [ -n "$response" ] || return 1
     printf '%s' "$response"

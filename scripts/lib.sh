@@ -512,6 +512,44 @@ dokku() {
     docker exec -i "${DOKKU_CONTAINER:-dokku}" dokku "$@"
 }
 
+# Resolve the port a Dokku app listens on inside its web container. The
+# `<app>.web` DNS name reaches the container directly, so it does not use the
+# edge nginx port configured by `ports:set`.
+dokku_app_port() {
+    local app="$1" container="${DOKKU_CONTAINER:-dokku}" key port
+    for key in SERVER_PORT PORT; do
+        if ! port="$(docker exec -i "$container" dokku config:get "$app" "$key" 2>/dev/null |
+            awk 'NF {print $1; exit}')"; then
+            port=""
+        fi
+        case "$port" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        if [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null; then
+            printf '%s' "$port"
+            return 0
+        fi
+    done
+
+    if ! port="$(docker exec -i "$container" dokku ports:report "$app" 2>/dev/null |
+        sed -nE 's/.*Ports map:[[:space:]]*[[:alnum:]_.-]+:[0-9]+:([0-9]+).*/\1/p' |
+        head -n1)"; then
+        port=""
+    fi
+    case "$port" in
+        ''|*[!0-9]*) ;;
+        *)
+            if [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null; then
+                printf '%s' "$port"
+                return 0
+            fi
+            ;;
+    esac
+
+    # Legacy apps without a configured container port use Dokku's edge port.
+    printf '80'
+}
+
 # Deploy an app from a Docker image. Dokku's git:from-image returns non-zero
 # when the image reference string did not change, even if the tag was re-pushed
 # and already pulled locally. In that case, rebuild the existing image source so

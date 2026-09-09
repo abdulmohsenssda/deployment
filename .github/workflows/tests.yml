@@ -42,6 +42,7 @@ jobs:
           set -euo pipefail
           bash scripts/tests/test-reconcile-runtime.sh
           bash scripts/tests/test-tenant-provenance.sh
+          bash scripts/tests/test-runtime-probes.sh
           bash scripts/tests/test-deployctl.sh
 
       - name: Check deployment contracts
