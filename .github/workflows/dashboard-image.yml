@@ -91,6 +91,7 @@ jobs:
           echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
+        id: publish
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ./dashboard
@@ -138,13 +139,13 @@ jobs:
           SHORT_COMMIT: ${{ steps.sha.outputs.short }}
           VERSION: ${{ steps.build.outputs.version }}
           WORKFLOW_RUN_ID: ${{ github.run_id }}
+          PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
           set -euo pipefail
           for tag in latest prod "$SHORT_COMMIT" "$COMMIT"; do
             docker buildx imagetools inspect "${IMAGE_NAME}:${tag}" >/dev/null
           done
-          manifest="$(docker buildx imagetools inspect "${IMAGE_NAME}:prod" \
-            | awk '$1 == "Digest:" {print $2; exit}')"
+          manifest="$PUBLISHED_DIGEST"
           [[ "$manifest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
             echo "published prod tag did not return a manifest digest" >&2
             exit 1

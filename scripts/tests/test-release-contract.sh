@@ -112,6 +112,10 @@ contains .github/workflows/dashboard-image.yml 'DOCKERHUB_USERNAME is missing or
     "dashboard workflow validates Docker Hub owner"
 contains .github/workflows/dashboard-image.yml 'docker buildx imagetools inspect' \
     "dashboard workflow verifies published manifests"
+contains .github/workflows/dashboard-image.yml 'id: publish' \
+    "dashboard workflow exposes the published image digest"
+contains .github/workflows/dashboard-image.yml 'PUBLISHED_DIGEST: ${{ steps.publish.outputs.digest }}' \
+    "dashboard workflow verifies the build action digest without truncating inspect output"
 contains dashboard/prod-up.sh 'DASHBOARD_IMAGE_DIGEST' \
     "dashboard startup resolves the pulled image digest"
 contains dashboard/docker-compose.prod.yml 'APP_IMAGE_DIGEST' \
