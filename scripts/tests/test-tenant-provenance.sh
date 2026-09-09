@@ -147,6 +147,7 @@ docker() {
         *"config:get legacy-app SERVER_PORT"*) printf '\n' ;;
         *"config:get legacy-app PORT"*) printf '\n' ;;
         *"ports:report legacy-app"*) printf 'Ports map: http:80:8123\n' ;;
+        *"config:get fallback-app"*|*"ports:report fallback-app"*) exit 1 ;;
         *) printf '\n' ;;
     esac
 }
@@ -158,6 +159,7 @@ assert_probe_port() {
 assert_probe_port api-app 8090
 assert_probe_port frontend-app 8000
 assert_probe_port legacy-app 8123
+assert_probe_port fallback-app 80
 pass "runtime probes resolve backend, frontend, and legacy ports"
 
 echo "=== migration, rollback, and component-only guards ==="

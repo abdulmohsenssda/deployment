@@ -518,8 +518,10 @@ dokku() {
 dokku_app_port() {
     local app="$1" container="${DOKKU_CONTAINER:-dokku}" key port
     for key in SERVER_PORT PORT; do
-        port="$(docker exec -i "$container" dokku config:get "$app" "$key" 2>/dev/null |
-            awk 'NF {print $1; exit}')"
+        if ! port="$(docker exec -i "$container" dokku config:get "$app" "$key" 2>/dev/null |
+            awk 'NF {print $1; exit}')"; then
+            port=""
+        fi
         case "$port" in
             ''|*[!0-9]*) continue ;;
         esac
@@ -529,9 +531,11 @@ dokku_app_port() {
         fi
     done
 
-    port="$(docker exec -i "$container" dokku ports:report "$app" 2>/dev/null |
+    if ! port="$(docker exec -i "$container" dokku ports:report "$app" 2>/dev/null |
         sed -nE 's/.*Ports map:[[:space:]]*[[:alnum:]_.-]+:[0-9]+:([0-9]+).*/\1/p' |
-        head -n1)"
+        head -n1)"; then
+        port=""
+    fi
     case "$port" in
         ''|*[!0-9]*) ;;
         *)
