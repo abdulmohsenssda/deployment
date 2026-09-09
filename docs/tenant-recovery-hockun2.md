@@ -110,14 +110,30 @@ Or, if the operator has direct MySQL access and just needs the two
 `purchase_bill_product` columns from migration 0005:
 
 ```sql
-ALTER TABLE `purchase_bill_product`
-  ADD COLUMN IF NOT EXISTS `cost_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `price`,
-  ADD COLUMN IF NOT EXISTS `shelf_number` VARCHAR(45) NULL AFTER `name`;
+SET @s := IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'purchase_bill_product'
+     AND column_name = 'cost_price') = 0,
+  'ALTER TABLE `purchase_bill_product` ADD COLUMN `cost_price` DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `price`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @s := IF(
+  (SELECT COUNT(*) FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'purchase_bill_product'
+     AND column_name = 'shelf_number') = 0,
+  'ALTER TABLE `purchase_bill_product` ADD COLUMN `shelf_number` VARCHAR(45) NULL AFTER `name`',
+  'SELECT 1'
+);
+PREPARE stmt FROM @s; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 ```
 
-(MariaDB and MySQL 8.0.29+ support `ADD COLUMN IF NOT EXISTS`. For older
-MySQL, use the `information_schema.columns` gate that migration 0005 uses
-verbatim — it is safe to apply repeatedly.)
+This information-schema guard is intentionally used instead of
+`ADD COLUMN IF NOT EXISTS`, which is not available on the older MySQL
+versions used by some tenants. It is safe to apply repeatedly.
 
 ## Smoke tests after recovery
 
