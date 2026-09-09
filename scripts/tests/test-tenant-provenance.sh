@@ -7,9 +7,38 @@ cd "$REPO_DIR"
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*"; exit 1; }
 
+source scripts/lib.sh
 source scripts/tenant-provenance.sh
 
 IMAGE_DIGEST="sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+echo "=== portable schema column helper ==="
+schema_calls_file="$(mktemp)"
+trap 'rm -f "$schema_calls_file"' EXIT
+schema_column_exists=0
+run_mysql() {
+    local args="$*"
+    printf '%s\n' "$args" >> "$schema_calls_file"
+    if [[ "$args" == *"information_schema.columns"* ]]; then
+        printf '%s\n' "$schema_column_exists"
+    fi
+}
+mysql_add_column_if_missing test_db tenant sample_column "VARCHAR(8) NOT NULL DEFAULT ''" \
+    || fail "missing schema column was not added"
+grep -q 'ALTER TABLE `tenant` ADD COLUMN `sample_column` VARCHAR(8)' "$schema_calls_file" ||
+    fail "portable schema helper did not issue a column ALTER"
+
+: > "$schema_calls_file"
+schema_column_exists=1
+mysql_add_column_if_missing test_db tenant sample_column "VARCHAR(8) NOT NULL DEFAULT ''" \
+    || fail "existing schema column was not accepted"
+[ "$(grep -c 'information_schema.columns' "$schema_calls_file")" -eq 1 ] ||
+    fail "existing schema column was not checked"
+! grep -q 'ALTER TABLE `tenant` ADD COLUMN `sample_column`' "$schema_calls_file" ||
+    fail "existing schema column triggered an unnecessary ALTER"
+! grep -q 'ADD COLUMN IF NOT EXISTS' scripts/lib.sh scripts/setup.sh scripts/tenant-provenance.sh ||
+    fail "unsupported ADD COLUMN IF NOT EXISTS migration remains"
+pass "portable schema migration is used"
 
 docker() {
     local format=""
