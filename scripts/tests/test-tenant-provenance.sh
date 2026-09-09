@@ -36,7 +36,9 @@ mysql_add_column_if_missing test_db tenant sample_column "VARCHAR(8) NOT NULL DE
     fail "existing schema column was not checked"
 ! grep -q 'ALTER TABLE `tenant` ADD COLUMN `sample_column`' "$schema_calls_file" ||
     fail "existing schema column triggered an unnecessary ALTER"
-! grep -q 'ADD COLUMN IF NOT EXISTS' scripts/lib.sh scripts/setup.sh scripts/tenant-provenance.sh ||
+! grep -q 'ADD COLUMN IF NOT EXISTS `' \
+    scripts/lib.sh scripts/setup.sh scripts/tenant-provenance.sh \
+    docs/tenant-recovery-hockun2.md ||
     fail "unsupported ADD COLUMN IF NOT EXISTS migration remains"
 pass "portable schema migration is used"
 
