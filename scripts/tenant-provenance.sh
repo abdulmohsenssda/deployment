@@ -253,32 +253,8 @@ provenance_sql_escape() {
 
 ensure_tenant_provenance_schema() {
     local db="${MYSQL_MASTER_DB:-zatca_master}"
+    ensure_tenant_provenance_columns "$db" || return
     run_mysql "$db" <<'SQL'
-ALTER TABLE tenant
-    ADD COLUMN IF NOT EXISTS backend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_channel VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_channel VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_version VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_version VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_commit VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_commit VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_workflow_run_url VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_workflow_run_url VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_built_at VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_built_at VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_deployed_at TIMESTAMP NULL DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS frontend_deployed_at TIMESTAMP NULL DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS backend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
-    ADD COLUMN IF NOT EXISTS frontend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
-    ADD COLUMN IF NOT EXISTS backend_deployment_error TEXT NULL,
-    ADD COLUMN IF NOT EXISTS frontend_deployment_error TEXT NULL;
 CREATE TABLE IF NOT EXISTS tenant_deployment_audit (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tenant_name VARCHAR(100) NOT NULL,
@@ -304,10 +280,8 @@ CREATE TABLE IF NOT EXISTS tenant_deployment_audit (
     INDEX idx_tenant_deployment_audit_tenant (tenant_name, started_at),
     INDEX idx_tenant_deployment_audit_status (status, started_at)
 ) ENGINE=InnoDB;
-ALTER TABLE tenant_deployment_audit
-    ADD COLUMN IF NOT EXISTS backup_id VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backup_db_artifact VARCHAR(512) NOT NULL DEFAULT '';
 SQL
+    ensure_tenant_audit_columns "$db"
 }
 
 tenant_record_audit() {

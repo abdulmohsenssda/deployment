@@ -414,32 +414,6 @@ CREATE TABLE IF NOT EXISTS tenant (
     created_at      TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_enabled (enabled)
 ) ENGINE=InnoDB;
--- Add columns if upgrading from older schema
-ALTER TABLE tenant ADD COLUMN IF NOT EXISTS backend_image  VARCHAR(255) NOT NULL DEFAULT '';
-ALTER TABLE tenant ADD COLUMN IF NOT EXISTS frontend_image VARCHAR(255) NOT NULL DEFAULT '';
-ALTER TABLE tenant
-    ADD COLUMN IF NOT EXISTS backend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_image_ref VARCHAR(512) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_image_digest VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_channel VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_channel VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_version VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_version VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_commit VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_commit VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_commit_short VARCHAR(32) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_workflow_run VARCHAR(128) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_built_at VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS frontend_built_at VARCHAR(64) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backend_deployed_at TIMESTAMP NULL DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS frontend_deployed_at TIMESTAMP NULL DEFAULT NULL,
-    ADD COLUMN IF NOT EXISTS backend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
-    ADD COLUMN IF NOT EXISTS frontend_deployment_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
-    ADD COLUMN IF NOT EXISTS backend_deployment_error TEXT NULL,
-    ADD COLUMN IF NOT EXISTS frontend_deployment_error TEXT NULL;
 CREATE TABLE IF NOT EXISTS tenant_deployment_audit (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     tenant_name VARCHAR(100) NOT NULL,
@@ -464,11 +438,10 @@ CREATE TABLE IF NOT EXISTS tenant_deployment_audit (
     INDEX idx_tenant_deployment_audit_tenant (tenant_name, started_at),
     INDEX idx_tenant_deployment_audit_status (status, started_at)
 ) ENGINE=InnoDB;
-ALTER TABLE tenant_deployment_audit
-    ADD COLUMN IF NOT EXISTS backup_id VARCHAR(255) NOT NULL DEFAULT '',
-    ADD COLUMN IF NOT EXISTS backup_db_artifact VARCHAR(512) NOT NULL DEFAULT '';
 SQLEOF
 
+    ensure_tenant_provenance_columns "$MYSQL_MASTER_DB"
+    ensure_tenant_audit_columns "$MYSQL_MASTER_DB"
     log "Master database ready: ${MYSQL_MASTER_DB}.tenant"
 else
     warn "MYSQL_ADMIN_PASSWORD not configured. Skipping master DB setup."

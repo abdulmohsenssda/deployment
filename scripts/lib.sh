@@ -337,6 +337,89 @@ run_mysql() {
     fi
 }
 
+# Check whether a column exists without relying on the conditional ALTER form,
+# which is not available on all MySQL versions supported by existing
+# installations.
+mysql_column_exists() {
+    local db="$1" table="$2" column="$3" count
+    if [[ ! "$table" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ||
+        ! "$column" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Invalid MySQL identifier in schema migration." >&2
+        return 2
+    fi
+
+    count="$(run_mysql "$db" -N -B -e \
+        "SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = '${table}'
+           AND column_name = '${column}'")" || return 2
+    case "$count" in
+        0) printf '0' ;;
+        1) printf '1' ;;
+        *)
+            echo "Unexpected information_schema.columns result for ${table}.${column}: ${count}" >&2
+            return 2
+            ;;
+    esac
+}
+
+mysql_add_column_if_missing() {
+    local db="$1" table="$2" column="$3" definition="$4" exists
+    exists="$(mysql_column_exists "$db" "$table" "$column")" || return
+    case "$exists" in
+        1) return 0 ;;
+        0) run_mysql "$db" -e "ALTER TABLE \`${table}\` ADD COLUMN \`${column}\` ${definition}" ;;
+        *) echo "Unexpected column existence result for ${table}.${column}: ${exists}" >&2; return 1 ;;
+    esac
+}
+
+# Add the deployment provenance columns needed by both setup and upgrade
+# paths. Each column is checked separately for compatibility with older
+# MySQL servers and partially upgraded installations.
+ensure_tenant_provenance_columns() {
+    local db="$1" column definition
+    local columns=(
+        "backend_image|VARCHAR(255) NOT NULL DEFAULT ''"
+        "frontend_image|VARCHAR(255) NOT NULL DEFAULT ''"
+        "backend_image_ref|VARCHAR(512) NOT NULL DEFAULT ''"
+        "frontend_image_ref|VARCHAR(512) NOT NULL DEFAULT ''"
+        "backend_image_digest|VARCHAR(255) NOT NULL DEFAULT ''"
+        "frontend_image_digest|VARCHAR(255) NOT NULL DEFAULT ''"
+        "backend_channel|VARCHAR(64) NOT NULL DEFAULT ''"
+        "frontend_channel|VARCHAR(64) NOT NULL DEFAULT ''"
+        "backend_version|VARCHAR(128) NOT NULL DEFAULT ''"
+        "frontend_version|VARCHAR(128) NOT NULL DEFAULT ''"
+        "backend_commit|VARCHAR(128) NOT NULL DEFAULT ''"
+        "frontend_commit|VARCHAR(128) NOT NULL DEFAULT ''"
+        "backend_commit_short|VARCHAR(32) NOT NULL DEFAULT ''"
+        "frontend_commit_short|VARCHAR(32) NOT NULL DEFAULT ''"
+        "backend_workflow_run|VARCHAR(128) NOT NULL DEFAULT ''"
+        "frontend_workflow_run|VARCHAR(128) NOT NULL DEFAULT ''"
+        "backend_workflow_run_url|VARCHAR(512) NOT NULL DEFAULT ''"
+        "frontend_workflow_run_url|VARCHAR(512) NOT NULL DEFAULT ''"
+        "backend_built_at|VARCHAR(64) NOT NULL DEFAULT ''"
+        "frontend_built_at|VARCHAR(64) NOT NULL DEFAULT ''"
+        "backend_deployed_at|TIMESTAMP NULL DEFAULT NULL"
+        "frontend_deployed_at|TIMESTAMP NULL DEFAULT NULL"
+        "backend_deployment_status|VARCHAR(32) NOT NULL DEFAULT 'unknown'"
+        "frontend_deployment_status|VARCHAR(32) NOT NULL DEFAULT 'unknown'"
+        "backend_deployment_error|TEXT NULL"
+        "frontend_deployment_error|TEXT NULL"
+    )
+    for definition in "${columns[@]}"; do
+        column="${definition%%|*}"
+        mysql_add_column_if_missing "$db" tenant "$column" "${definition#*|}" || return
+    done
+}
+
+ensure_tenant_audit_columns() {
+    local db="$1"
+    mysql_add_column_if_missing "$db" tenant_deployment_audit \
+        backup_id "VARCHAR(255) NOT NULL DEFAULT ''" || return
+    mysql_add_column_if_missing "$db" tenant_deployment_audit \
+        backup_db_artifact "VARCHAR(512) NOT NULL DEFAULT ''"
+}
+
 # mysqldump (stdout flows to host for piping)
 run_mysqldump() {
     local host user password
