@@ -138,6 +138,28 @@ else
     pass "mismatched /version commit is rejected"
 fi
 
+echo "=== app probes use the container listening port ==="
+docker() {
+    case "$*" in
+        *"config:get api-app SERVER_PORT"*) printf '8090\n' ;;
+        *"config:get frontend-app SERVER_PORT"*) printf '\n' ;;
+        *"config:get frontend-app PORT"*) printf '8000\n' ;;
+        *"config:get legacy-app SERVER_PORT"*) printf '\n' ;;
+        *"config:get legacy-app PORT"*) printf '\n' ;;
+        *"ports:report legacy-app"*) printf 'Ports map: http:80:8123\n' ;;
+        *) printf '\n' ;;
+    esac
+}
+assert_probe_port() {
+    local app="$1" expected="$2" actual
+    actual="$(dokku_app_port "$app")"
+    [ "$actual" = "$expected" ] || fail "${app} probe port: expected ${expected}, got ${actual}"
+}
+assert_probe_port api-app 8090
+assert_probe_port frontend-app 8000
+assert_probe_port legacy-app 8123
+pass "runtime probes resolve backend, frontend, and legacy ports"
+
 echo "=== migration, rollback, and component-only guards ==="
 grep -q 'init-tenant-db.sh' scripts/update-tenant.sh &&
 grep -q -- '--schema-only' scripts/update-tenant.sh \

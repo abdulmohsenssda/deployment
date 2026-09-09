@@ -211,9 +211,7 @@ app_restart_count() {
 # Internal Dokku-network port the app listens on (parsed from `dokku ports:report`)
 app_internal_port() {
     local app="$1"
-    docker exec -i dokku dokku ports:report "$app" 2>/dev/null \
-        | awk -F: '/Ports map:/ {print $NF}' \
-        | tr -d ' ' | head -1
+    dokku_app_port "$app"
 }
 
 # Host-published ports for the app's container, formatted as "host:container,...".
@@ -261,16 +259,18 @@ app_tenant() {
 # HTTP probe inside the dokku container against the app's web service
 app_http_probe() {
     local app="$1"
-    local path="${2:-/}"
-    docker exec -i dokku bash -lc \
-        "curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://${app}.web${path}" \
+    local path="${2:-/}" port
+    port="$(dokku_app_port "$app")"
+    docker exec -i "${DOKKU_CONTAINER:-dokku}" bash -lc \
+        "curl -sS -o /dev/null -w '%{http_code}' --max-time 5 http://${app}.web:${port}${path}" \
         2>/dev/null || echo "000"
 }
 
 app_http_probe_detail() {
-    local app="$1" path="${2:-/}"
-    docker exec -i dokku bash -lc \
-        "curl -sS -o /dev/null -w '%{http_code}\t%{errormsg}' --max-time 5 http://${app}.web${path}" \
+    local app="$1" path="${2:-/}" port
+    port="$(dokku_app_port "$app")"
+    docker exec -i "${DOKKU_CONTAINER:-dokku}" bash -lc \
+        "curl -sS -o /dev/null -w '%{http_code}\t%{errormsg}' --max-time 5 http://${app}.web:${port}${path}" \
         2>/dev/null || true
 }
 
