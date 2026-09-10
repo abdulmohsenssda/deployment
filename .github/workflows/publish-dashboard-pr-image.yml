@@ -120,7 +120,7 @@ jobs:
         working-directory: dashboard
         run: go test ./...
 
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       # Build before login so Docker Hub credentials are never available to
       # commands from the reviewed PR's Dockerfile.
