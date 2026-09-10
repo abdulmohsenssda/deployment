@@ -1,0 +1,173 @@
+name: Publish Reviewed Dashboard PR Image
+
+# Same-repository PRs publish automatically. A maintainer can use
+# workflow_dispatch for a reviewed fork PR without exposing credentials to the
+# fork's pull_request job.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open PR number to publish
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/dokku-dashboard
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR source
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pr_number || github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          base_repo="$(jq -r '.base.repo.full_name' <<<"$payload")"
+          state="$(jq -r '.state' <<<"$payload")"
+          merged_at="$(jq -r '.merged_at // empty' <<<"$payload")"
+          [[ "$base_repo" == "$GITHUB_REPOSITORY" ]] || {
+            echo "PR does not target this repository." >&2
+            exit 1
+          }
+          [[ "$state" == "open" && -z "$merged_at" ]] || {
+            echo "Only an open, unmerged PR can receive a review image." >&2
+            exit 1
+          }
+          head_repo="$(jq -r '.head.repo.full_name // empty' <<<"$payload")"
+          head_sha="$(jq -r '.head.sha // empty' <<<"$payload")"
+          head_ref="$(jq -r '.head.ref // empty' <<<"$payload")"
+          source_url="$(jq -r '.head.repo.html_url // empty' <<<"$payload")"
+          [[ -n "$head_repo" && -n "$head_sha" && -n "$head_ref" ]] || {
+            echo "The PR source repository or commit is unavailable." >&2
+            exit 1
+          }
+          {
+            echo "head_repository=${head_repo}"
+            echo "head_sha=${head_sha}"
+            echo "head_ref=${head_ref}"
+            echo "source_url=${source_url}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: ${{ steps.pr.outputs.head_repository }}
+          ref: ${{ steps.pr.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Resolve image identity
+        id: image
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          SOURCE_URL: ${{ steps.pr.outputs.source_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "${DOCKERHUB_USERNAME:-}" | tr '[:upper:]' '[:lower:]')"
+          [[ "$owner" =~ ^[a-z0-9][a-z0-9_-]{0,127}$ ]] || {
+            echo "DOCKERHUB_USERNAME is missing or invalid." >&2
+            exit 1
+          }
+          [[ -n "${DOCKERHUB_TOKEN:-}" ]] || {
+            echo "DOCKERHUB_TOKEN is required for a maintainer-triggered publish." >&2
+            exit 1
+          }
+          expected="${owner}/dokku-dashboard"
+          [[ "${IMAGE_NAME}" == "$expected" ]] || {
+            echo "IMAGE_NAME must be derived from DOCKERHUB_USERNAME." >&2
+            exit 1
+          }
+          slug="$(printf '%s' "$HEAD_REF" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' \
+            | cut -c1-100)"
+          [[ -n "$slug" ]] || {
+            echo "The PR branch does not produce a Docker tag." >&2
+            exit 1
+          }
+          tag="pr-${slug}"
+          short_sha="${HEAD_SHA:0:12}"
+          built_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          image_ref="${IMAGE_NAME}:${tag}"
+          {
+            echo "tag=${tag}"
+            echo "short_sha=${short_sha}"
+            echo "built_at=${built_at}"
+            echo "image_ref=${image_ref}"
+            echo "source_url=${SOURCE_URL}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: dashboard/go.sum
+
+      - name: Test dashboard source
+        working-directory: dashboard
+        run: go test ./...
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6 # v3
+
+      # Build before login so Docker Hub credentials are never available to
+      # commands from the reviewed PR's Dockerfile.
+      - name: Build reviewed image locally
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          load: true
+          tags: local/dokku-dashboard:${{ steps.image.outputs.tag }}
+          build-args: |
+            BUILD_VERSION=${{ steps.image.outputs.tag }}
+            BUILD_COMMIT=${{ steps.pr.outputs.head_sha }}
+            APP_VERSION=${{ steps.image.outputs.tag }}
+            APP_IMAGE_VERSION=${{ steps.image.outputs.tag }}
+            APP_IMAGE_TAG=${{ steps.image.outputs.tag }}
+            APP_IMAGE_CHANNEL=pr
+            APP_IMAGE_REF=${{ steps.image.outputs.image_ref }}
+            APP_IMAGE_COMMIT=${{ steps.pr.outputs.head_sha }}
+            APP_IMAGE_COMMIT_SHORT=${{ steps.image.outputs.short_sha }}
+            APP_WORKFLOW_RUN_ID=${{ github.run_id }}
+            APP_WORKFLOW_RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            APP_SOURCE=${{ steps.image.outputs.source_url }}
+            APP_BUILT_AT=${{ steps.image.outputs.built_at }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.image.outputs.tag }}
+            org.opencontainers.image.revision=${{ steps.pr.outputs.head_sha }}
+            org.opencontainers.image.source=${{ steps.image.outputs.source_url }}
+            org.opencontainers.image.created=${{ steps.image.outputs.built_at }}
+            com.ifritah.build.channel=pr
+            com.ifritah.build.tag=${{ steps.image.outputs.tag }}
+            com.ifritah.build.image_ref=${{ steps.image.outputs.image_ref }}
+            com.ifritah.build.commit=${{ steps.pr.outputs.head_sha }}
+            com.ifritah.build.commit_short=${{ steps.image.outputs.short_sha }}
+            com.ifritah.build.workflow_run_id=${{ github.run_id }}
+            com.ifritah.build.workflow_run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push reviewed image
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.image_ref }}
+          BRANCH_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker tag "local/dokku-dashboard:${BRANCH_TAG}" "$IMAGE_REF"
+          docker push "$IMAGE_REF"

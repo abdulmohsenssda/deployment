@@ -5,6 +5,8 @@ name: Build PR Frontend Image
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [closed]
 
 permissions:
   contents: read
@@ -15,7 +17,7 @@ env:
 jobs:
   build-and-push:
     # Docker Hub credentials are never exposed to fork pull requests.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,3 +64,38 @@ jobs:
             org.opencontainers.image.source=${{ github.event.pull_request.head.repo.html_url }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  cleanup:
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_REPOSITORY: ifritah-web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Resolve branch image tag
+        id: branch_tag
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$HEAD_REF" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' \
+            | cut -c1-100)"
+          [[ -n "$slug" ]] || {
+            echo "The merged PR branch does not produce a Docker tag." >&2
+            exit 1
+          }
+          echo "tag=pr-${slug}" >> "$GITHUB_OUTPUT"
+
+      - name: Delete branch image tags
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          BRANCH_TAG: ${{ steps.branch_tag.outputs.tag }}
+        run: bash .github/scripts/delete-branch-image-tags.sh

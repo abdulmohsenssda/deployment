@@ -1,0 +1,45 @@
+name: Cleanup Merged Dashboard PR Image
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+env:
+  DOCKERHUB_REPOSITORY: dokku-dashboard
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Resolve dashboard branch image tag
+        id: branch_tag
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$HEAD_REF" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9_.-]+/-/g; s/^[.-]+//; s/[.-]+$//' \
+            | cut -c1-100)"
+          [[ -n "$slug" ]] || {
+            echo "The merged PR branch does not produce a Docker tag." >&2
+            exit 1
+          }
+          echo "tag=pr-${slug}" >> "$GITHUB_OUTPUT"
+
+      - name: Delete dashboard branch image tags
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          BRANCH_TAG: ${{ steps.branch_tag.outputs.tag }}
+        run: bash scripts/delete-branch-image-tags.sh
