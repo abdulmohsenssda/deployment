@@ -193,3 +193,33 @@ func TestAsyncOutputSkipsDecorativeAnnouncements(t *testing.T) {
 		t.Fatal("tenant action separators should not be announced")
 	}
 }
+
+func TestImageTagDropdownUsesViewportPortal(t *testing.T) {
+	appJS, err := staticFS.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatalf("read app.js: %v", err)
+	}
+	css, err := staticFS.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatalf("read app.css: %v", err)
+	}
+
+	for _, token := range []string{
+		"document.body.appendChild(ul)",
+		"function positionTagDropdown(input, dd)",
+		"window.addEventListener('scroll', reposition, true)",
+		"meta.forEach((m, index) => {",
+	} {
+		if !strings.Contains(string(appJS), token) {
+			t.Errorf("app.js is missing viewport dropdown token %q", token)
+		}
+	}
+	for _, token := range []string{
+		".tag-dropdown {\n  position: fixed;",
+		"max-height: min(320px, calc(100vh - 16px));",
+	} {
+		if !strings.Contains(string(css), token) {
+			t.Errorf("app.css is missing viewport dropdown token %q", token)
+		}
+	}
+}

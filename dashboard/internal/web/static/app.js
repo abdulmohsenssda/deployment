@@ -840,6 +840,11 @@
     if (el) el.remove();
     const input = document.getElementById(inputId);
     if (input) {
+      if (input._tagDropdownReposition) {
+        window.removeEventListener('resize', input._tagDropdownReposition);
+        window.removeEventListener('scroll', input._tagDropdownReposition, true);
+        delete input._tagDropdownReposition;
+      }
       input.setAttribute('aria-expanded', 'false');
       input.removeAttribute('aria-activedescendant');
     }
@@ -881,8 +886,31 @@
     input.value = label.textContent;
     input.dispatchEvent(new Event('change', { bubbles: true }));
     removeTagDropdown(input.id);
-    const wrap = input.parentElement;
-    if (wrap) wrap.style.position = '';
+  }
+
+  function positionTagDropdown(input, dd) {
+    if (!input || !dd || !dd.isConnected) return;
+    const rect = input.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 3;
+    const maxHeight = 320;
+    const below = window.innerHeight - rect.bottom - gap - viewportPadding;
+    const above = rect.top - gap - viewportPadding;
+    const openAbove = below < 160 && above > below;
+    const availableHeight = Math.max(80, Math.min(maxHeight, openAbove ? above : below));
+    const width = Math.min(rect.width, window.innerWidth - viewportPadding * 2);
+    const left = Math.max(
+      viewportPadding,
+      Math.min(rect.left, window.innerWidth - width - viewportPadding),
+    );
+    const top = openAbove
+      ? Math.max(viewportPadding, rect.top - gap - availableHeight)
+      : Math.min(window.innerHeight - viewportPadding - availableHeight, rect.bottom + gap);
+
+    dd.style.left = `${left}px`;
+    dd.style.top = `${Math.max(viewportPadding, top)}px`;
+    dd.style.width = `${width}px`;
+    dd.style.maxHeight = `${availableHeight}px`;
   }
 
   function buildTagDropdown(input, meta, message = '', query = '', messageKind = '') {
@@ -904,7 +932,7 @@
       li.textContent = message;
       ul.appendChild(li);
     } else {
-      meta.slice(0, 40).forEach((m, index) => {
+      meta.forEach((m, index) => {
         const li = document.createElement('li');
         li.id = input.id + '-option-' + index;
         const available = tagSupportsScope(m, imageScope(input));
@@ -967,11 +995,12 @@
       });
     }
 
-    const wrap = input.parentElement;
-    if (wrap) {
-      wrap.style.position = 'relative';
-      wrap.appendChild(ul);
-    }
+    document.body.appendChild(ul);
+    const reposition = () => positionTagDropdown(input, ul);
+    input._tagDropdownReposition = reposition;
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    reposition();
     input.setAttribute('aria-controls', ul.id);
     input.setAttribute('aria-expanded', 'true');
   }
